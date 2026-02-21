@@ -1,0 +1,47 @@
+{
+  "name": "privacy-shield-llm",
+  "version": "1.0.0",
+  "description": "Privacy protection extension for LLM websites using GLiNER 2 for PII detection",
+  "scripts": {
+    "setup": "python3 -m venv .venv && . .venv/bin/activate && pip install --index-url https://download.pytorch.org/whl/cpu 'torch>=2.0.0' && pip install -r requirements.txt",
+    "download-gliner2": ".venv/bin/python scripts/gliner2_server.py --download-only",
+    "run-gliner2": ".venv/bin/python scripts/gliner2_server.py",
+    "run-gliner2-lazy": ".venv/bin/python scripts/gliner2_server.py --lazy-load",
+    "install-native-host-linux": "bash scripts/install_native_host_linux.sh",
+    "remove-native-host-linux": "bash scripts/uninstall_native_host_linux.sh",
+    "install-autostart-linux": "bash scripts/install_autostart_linux.sh",
+    "remove-autostart-linux": "bash scripts/uninstall_autostart_linux.sh",
+    "status-autostart-linux": "systemctl --user --no-pager status privacy-shield-gliner.service",
+    "build": "echo 'No JS build step required'",
+    "lint": "eslint *.js",
+    "format": "prettier --write '**/*.{js,json,css,html}'",
+    "test": "echo 'Tests not yet implemented'",
+    "package": "zip -r privacy-shield-extension.zip . -x 'node_modules/*' '.git/*' '*.md' '__pycache__/*'",
+    "dev": "echo 'Load extension in Chrome via chrome://extensions in developer mode'"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "eslint": "^8.50.0",
+    "prettier": "^3.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/privacy-shield-llm"
+  },
+  "keywords": [
+    "chrome-extension",
+    "privacy",
+    "pii-detection",
+    "gliner",
+    "llm",
+    "security",
+    "nlp",
+    "ner"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "browser": {
+    "fs": false,
+    "path": false
+  }
+}
