@@ -80,51 +80,37 @@
   }
 }
 
-/* ─── Scanning pill ("🛡 Anonymising…") ─── */
+/* ─── Scanning indicator ("🛡 Anonymising…") ─── */
 .ps-scanning-pill {
   position: absolute;
   z-index: 2147483250;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 999px;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   font-family: "Sora", "Avenir Next", "Segoe UI", sans-serif;
   letter-spacing: 0.02em;
-  color: #f0f9ff;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.92), rgba(6, 95, 140, 0.94));
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.3), 0 0 0 1px rgba(14, 165, 233, 0.12);
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 2px 8px rgba(2, 6, 23, 0.18);
   pointer-events: none;
   opacity: 0;
   transform: translateY(3px);
-  transition: opacity 200ms ease, transform 200ms ease;
-  overflow: hidden;
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
+/* No shimmer animation */
 .ps-scanning-pill::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.18) 50%, transparent 100%);
-  animation: ps-pill-shimmer 1.6s ease-in-out infinite;
+  display: none;
 }
 
 .ps-scanning-pill.ps-scanning-pill-visible {
   opacity: 1;
   transform: translateY(0);
-}
-
-@keyframes ps-pill-shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-
-  100% {
-    transform: translateX(100%);
-  }
 }
 
 /* ─── PII underline (Grammarly-style – before redaction) ─── */

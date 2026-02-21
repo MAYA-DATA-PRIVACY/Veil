@@ -63,7 +63,7 @@ const DEFAULT_CUSTOM_PATTERNS = [
 const TYPING_IDLE_DELAY_MS = 1200;
 const PASTE_IDLE_DELAY_MS = 750;
 const BLUR_DELAY_MS = 80;
-const SUPPRESS_INPUT_MS = 90;
+const SUPPRESS_INPUT_MS = 300;
 const AUTO_REDACT_DELAY_MS = 1500;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -661,7 +661,23 @@ class PrivacyShield {
         });
         detections = detections.filter((d) => {
           const text = String(d.text || '').trim();
-          return !knownReplacements.has(text);
+          // Reject exact matches
+          if (knownReplacements.has(text)) return false;
+          // Reject text that *contains* a known replacement token
+          for (const rep of knownReplacements) {
+            if (rep && text.includes(rep)) return false;
+          }
+          return true;
+        });
+
+        // ── Overlap guard: reject detections whose character range ──
+        // overlaps with ANY already-tracked item (redacted or not).
+        // This is the strongest protection against re-anonymising regions
+        // that have already been processed.
+        detections = detections.filter((d) => {
+          return !currentState.items.some((ex) =>
+            d.start < ex.end && d.end > ex.start
+          );
         });
       }
 
@@ -784,8 +800,19 @@ class PrivacyShield {
       // consistent across detection cycles.
       const clone = element.cloneNode(true);
       clone.querySelectorAll('.ps-redaction, .ps-pii-underline').forEach((span) => {
-        const original = span.getAttribute('data-ps-original') || span.textContent || '';
-        span.replaceWith(document.createTextNode(original));
+        // Always prefer the stored original text from data-ps-original.
+        // For redacted spans the textContent is the replacement, so
+        // data-ps-original is essential.  For underline spans the
+        // textContent *should* match the original, but we still prefer
+        // the attribute to avoid any edge-case mismatch.
+        const original = span.getAttribute('data-ps-original');
+        if (original != null) {
+          span.replaceWith(document.createTextNode(original));
+        } else {
+          // Fallback: use textContent, but if an ancestor state
+          // tracks this span we can look it up by offset.
+          span.replaceWith(document.createTextNode(span.textContent || ''));
+        }
       });
       const raw = clone.textContent || clone.innerText || '';
       const normalized = raw
@@ -851,10 +878,17 @@ class PrivacyShield {
   isSyntheticReplacementToken(value) {
     const text = String(value || '').trim();
     if (!text) return true;
+    // Exact alias tokens: <PERSON_1>
     if (/^<\s*[A-Z][A-Z0-9_]{1,40}\s*>$/.test(text)) return true;
+    // Exact redacted tokens: [NAME REDACTED]
     if (/^\[[^\]]*redacted[^\]]*\]$/i.test(text)) return true;
+    // Text *containing* alias tokens: "foo <PERSON_1> bar"
     if (/<\s*[A-Z][A-Z0-9_]{1,40}\s*>/.test(text)) return true;
+    // Text *containing* redacted tokens
     if (/\[[^\]]*redacted[^\]]*\]/i.test(text)) return true;
+    // Text that looks like a corrupted/concatenated redaction artefact
+    // e.g. "phon:930409..." or "emailfoo@bar.commom"
+    if (/\[\w+\s+REDACTED\]/i.test(text)) return true;
     return false;
   }
 
@@ -1020,6 +1054,9 @@ class PrivacyShield {
         element.innerHTML = html;
       });
 
+      // Attach delegated event listeners for click/hover on spans
+      this._attachContentEditableSpanListeners(element);
+
       // ── Restore cursor position ──
       this.restoreCaretPosition(element, savedCaret);
 
@@ -1147,46 +1184,144 @@ class PrivacyShield {
   }
 
   renderContentEditableHtml(element, state, flashIndex = -1) {
-    const htmlSource = typeof state.sourceHtml === 'string' ? state.sourceHtml : element.innerHTML;
-    const container = document.createElement('div');
-    container.innerHTML = htmlSource;
+    // Build the final HTML purely from state.sourceText as a string.
+    // This avoids all live-DOM mutation issues that the previous Range-based
+    // approach suffered from (stale offsets after deleteContents/insertNode).
+    const sourceText = state.sourceText || '';
+    if (!sourceText) return null;
 
-    const offsets = this.buildTextNodeOffsets(container);
-    if (!offsets.length) return container.innerHTML;
-
-    const entries = state.items
+    // Sort items by start position (ascending) so we can walk the text left-to-right
+    const sorted = state.items
       .map((item, index) => ({ item, index }))
       .slice()
-      .sort((a, b) => b.item.start - a.item.start);
+      .sort((a, b) => a.item.start - b.item.start);
 
-    entries.forEach(({ item, index }) => {
-      const startPos = this.resolveTextPosition(offsets, item.start, false);
-      const endPos = this.resolveTextPosition(offsets, item.end, true);
-      if (!startPos || !endPos) return;
+    const parts = [];
+    let cursor = 0;
 
-      const range = document.createRange();
-      try {
-        range.setStart(startPos.node, startPos.offset);
-        range.setEnd(endPos.node, endPos.offset);
-      } catch { return; }
+    sorted.forEach(({ item, index }) => {
+      const start = Math.max(0, item.start);
+      const end = Math.min(sourceText.length, item.end);
+      if (start >= end || start < cursor) return; // skip invalid or overlapping
 
-      // Avoid deleting structural nodes (br/div/etc.) which would break layout
-      const clone = range.cloneContents();
-      const hasElementNodes = Array.from(clone.childNodes).some((node) => node.nodeType === 1);
-      if (hasElementNodes) return;
-
-      let span;
-      if (item.redacted) {
-        span = this.createRedactionSpan(element, index, item, flashIndex === index);
-      } else {
-        span = this.createUnderlineSpan(element, index, item);
+      // Append any plain text before this span
+      if (cursor < start) {
+        parts.push(this.escapeHtml(sourceText.slice(cursor, start)));
       }
 
-      range.deleteContents();
-      range.insertNode(span);
+      // Build the span as an HTML string
+      const originalText = item.text || sourceText.slice(start, end);
+      const color = this.getTypeColor(item.label);
+      const stagger = `${Math.min(index * 30, 280)}ms`;
+      const escapedOriginal = this.escapeHtml(originalText);
+
+      if (item.redacted) {
+        const displayText = this.escapeHtml(this.getReplacementText(item));
+        const extraClasses = ['ps-redaction-active'];
+        if (this.settings?.redactionMode === 'anonymize') {
+          extraClasses.push('ps-redaction-anonymized');
+        }
+        if (flashIndex === index) extraClasses.push('ps-undo-ripple');
+        parts.push(
+          `<span class="ps-redaction ${extraClasses.join(' ')}"` +
+          ` data-index="${index}"` +
+          ` data-ps-original="${this._escapeAttr(originalText)}"` +
+          ` style="--redaction-color:${color};--stagger:${stagger}"` +
+          ` title="Hover to restore ${this.escapeHtml(item.label)}"` +
+          `>${displayText}</span>`
+        );
+      } else {
+        const flashClass = flashIndex === index ? ' ps-undo-ripple' : '';
+        parts.push(
+          `<span class="ps-pii-underline${flashClass}"` +
+          ` data-index="${index}"` +
+          ` data-ps-original="${this._escapeAttr(originalText)}"` +
+          ` style="--detection-color:${color};--stagger:${stagger}"` +
+          `>${escapedOriginal}</span>`
+        );
+      }
+
+      cursor = end;
     });
 
-    return container.innerHTML;
+    // Append any remaining text after the last span
+    if (cursor < sourceText.length) {
+      parts.push(this.escapeHtml(sourceText.slice(cursor)));
+    }
+
+    return parts.join('');
+  }
+
+  /** Escape a string for safe use inside an HTML attribute value (double-quoted). */
+  _escapeAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Attach click / hover listeners to ps-redaction and ps-pii-underline spans
+   * inside a contentEditable element via event delegation.  Called once after
+   * innerHTML is set so that listeners survive serialisation.
+   */
+  _attachContentEditableSpanListeners(element) {
+    // Use a single delegated listener on the element itself.
+    // Guard against double-attaching by checking a flag.
+    if (element._psListenersAttached) return;
+    element._psListenersAttached = true;
+
+    element.addEventListener('click', (event) => {
+      const span = event.target.closest('.ps-redaction, .ps-pii-underline');
+      if (!span) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const index = parseInt(span.getAttribute('data-index'), 10);
+      if (Number.isNaN(index)) return;
+      if (span.classList.contains('ps-pii-underline')) {
+        this.redactSingle(element, index);
+      } else {
+        this.toggleRedaction(element, index);
+      }
+    });
+
+    element.addEventListener('mouseenter', (event) => {
+      const span = event.target.closest('.ps-redaction, .ps-pii-underline');
+      if (!span) return;
+      const index = parseInt(span.getAttribute('data-index'), 10);
+      if (Number.isNaN(index)) return;
+      const mode = span.classList.contains('ps-pii-underline') ? 'underline' : 'redacted';
+
+      // Hover preview for redacted items
+      if (mode === 'redacted') {
+        const currentState = this.redactions.get(element);
+        const current = currentState?.items?.[index];
+        if (current?.redacted) {
+          span.classList.add('ps-redaction-hover-preview');
+          span.textContent = current.text;
+        }
+      }
+      this.showPopover(span, element, index, mode);
+    }, true);
+
+    element.addEventListener('mouseleave', (event) => {
+      const span = event.target.closest('.ps-redaction, .ps-pii-underline');
+      if (!span) return;
+      const index = parseInt(span.getAttribute('data-index'), 10);
+      if (Number.isNaN(index)) return;
+
+      // Restore redacted display text
+      if (span.classList.contains('ps-redaction')) {
+        const currentState = this.redactions.get(element);
+        const current = currentState?.items?.[index];
+        if (current?.redacted) {
+          span.classList.remove('ps-redaction-hover-preview');
+          span.textContent = this.getReplacementText(current);
+        }
+      }
+      this.schedulePopoverHide();
+    }, true);
   }
 
   // ── Underline span (Grammarly-style, before redaction) ──
