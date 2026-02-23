@@ -140,7 +140,7 @@ class PrivacyShield {
     this.postInteractionTimers = new Map();
     this.suppressedInput = new WeakSet();
     this.tokenTrays = new Map();
-    this.scanningPills = new WeakMap();
+    this.scanningPills = new Map();
     this.actionBars = new WeakMap();
     this.autoRedactTimers = new Map();
     this.dismissedDetections = new WeakMap(); // element → Set of "start:end:label"
@@ -150,7 +150,10 @@ class PrivacyShield {
 
     this.domObserver = null;
     this.stateReconcileTimer = null;
-    this.handleViewportChange = () => this.repositionTokenTrays();
+    this.handleViewportChange = () => {
+      this.repositionTokenTrays();
+      this.repositionScanningPills();
+    };
     this.handleRuntimeMessage = this.handleRuntimeMessage.bind(this);
     chrome.runtime.onMessage.addListener(this.handleRuntimeMessage);
 
@@ -420,6 +423,12 @@ class PrivacyShield {
         this.tokenTrays.delete(element);
       }
     });
+    this.scanningPills.forEach((pill, element) => {
+      if (!element?.isConnected) {
+        pill.remove();
+        this.scanningPills.delete(element);
+      }
+    });
   }
 
   pruneDisconnectedMonitoredElements() {
@@ -607,7 +616,7 @@ class PrivacyShield {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // Scanning Pill ("🛡 Anonymising…")
+  // Scanning Indicator (floating logo)
   // ═══════════════════════════════════════════════════════════
 
   showScanningPill(element) {
@@ -615,26 +624,74 @@ class PrivacyShield {
     if (!pill) {
       pill = document.createElement('div');
       pill.className = 'ps-scanning-pill';
-      pill.innerHTML = '🛡&nbsp;Anonymising…';
+      pill.innerHTML = `
+        <div class="ps-scan-logo-wrap" aria-hidden="true">
+          <svg class="ps-crinkle-ring" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+            <path class="ps-crinkle-track" pathLength="100" d="M18 4.4C19.6 4.2 21 4.9 22.5 5.3C24.1 5.8 25.9 6.1 27.1 7.3C28.4 8.5 29 10.4 29.9 11.9C30.8 13.4 31.8 14.9 31.9 16.7C31.9 18.5 30.9 20 30.2 21.6C29.5 23.2 29.1 25 27.9 26.2C26.7 27.4 24.9 27.8 23.4 28.6C21.9 29.3 20.3 30.3 18.6 30.4C16.8 30.5 15.2 29.5 13.6 28.9C12 28.2 10.2 27.9 9 26.7C7.7 25.4 7.4 23.6 6.6 22.1C5.9 20.6 4.9 19 4.8 17.3C4.6 15.5 5.6 13.9 6.2 12.3C6.8 10.7 7.2 8.9 8.4 7.7C9.7 6.5 11.5 6.1 13 5.4C14.6 4.7 16.2 4.6 18 4.4Z"></path>
+            <path class="ps-crinkle-progress" pathLength="100" d="M18 4.4C19.6 4.2 21 4.9 22.5 5.3C24.1 5.8 25.9 6.1 27.1 7.3C28.4 8.5 29 10.4 29.9 11.9C30.8 13.4 31.8 14.9 31.9 16.7C31.9 18.5 30.9 20 30.2 21.6C29.5 23.2 29.1 25 27.9 26.2C26.7 27.4 24.9 27.8 23.4 28.6C21.9 29.3 20.3 30.3 18.6 30.4C16.8 30.5 15.2 29.5 13.6 28.9C12 28.2 10.2 27.9 9 26.7C7.7 25.4 7.4 23.6 6.6 22.1C5.9 20.6 4.9 19 4.8 17.3C4.6 15.5 5.6 13.9 6.2 12.3C6.8 10.7 7.2 8.9 8.4 7.7C9.7 6.5 11.5 6.1 13 5.4C14.6 4.7 16.2 4.6 18 4.4Z"></path>
+          </svg>
+          <svg class="ps-lock-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path class="ps-lock-shackle" d="M8.2 10.5V8.1C8.2 5.9 10 4.1 12.2 4.1C14.4 4.1 16.2 5.9 16.2 8.1V10.5"></path>
+            <rect class="ps-lock-body" x="6.7" y="10.5" width="11" height="9.2" rx="2.1"></rect>
+            <circle class="ps-lock-dot" cx="12.2" cy="15.1" r="1"></circle>
+          </svg>
+        </div>
+        <div class="ps-scan-copy">
+          <div class="ps-scan-title">Privacy Shield</div>
+          <div class="ps-scan-sub">Anonymizing text...</div>
+        </div>
+      `;
       document.body.appendChild(pill);
       this.scanningPills.set(element, pill);
     }
 
-    const rect = element.getBoundingClientRect();
-    pill.style.top = `${window.scrollY + rect.top - 28}px`;
-    pill.style.left = `${window.scrollX + rect.right - 140}px`;
+    if (pill.psHideTimer) {
+      clearTimeout(pill.psHideTimer);
+      pill.psHideTimer = null;
+    }
 
+    this.positionScanningPill(element, pill);
     requestAnimationFrame(() => pill.classList.add('ps-scanning-pill-visible'));
+  }
+
+  positionScanningPill(element, pill) {
+    if (!element?.isConnected || !pill) return;
+
+    const rect = element.getBoundingClientRect();
+    const margin = 10;
+    const estimatedWidth = pill.getBoundingClientRect().width || 210;
+    const insideTopOffset = Math.min(Math.max(rect.height * 0.18, 8), 18);
+    const top = window.scrollY + rect.top + insideTopOffset;
+
+    let left = window.scrollX + rect.left + ((rect.width - estimatedWidth) / 2);
+    const minLeft = window.scrollX + margin;
+    const maxLeft = window.scrollX + window.innerWidth - estimatedWidth - margin;
+    left = Math.max(minLeft, Math.min(maxLeft, left));
+
+    pill.style.top = `${top}px`;
+    pill.style.left = `${left}px`;
+  }
+
+  repositionScanningPills() {
+    this.scanningPills.forEach((pill, element) => {
+      if (!element?.isConnected || !pill?.isConnected) {
+        pill?.remove?.();
+        this.scanningPills.delete(element);
+        return;
+      }
+      this.positionScanningPill(element, pill);
+    });
   }
 
   hideScanningPill(element) {
     const pill = this.scanningPills.get(element);
     if (!pill) return;
     pill.classList.remove('ps-scanning-pill-visible');
-    setTimeout(() => {
+    pill.psHideTimer = setTimeout(() => {
       pill.remove();
       this.scanningPills.delete(element);
-    }, 220);
+      pill.psHideTimer = null;
+    }, 240);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -864,9 +921,7 @@ class PrivacyShield {
       const raw = clone.textContent || clone.innerText || '';
       const normalized = raw
         .replace(/\u00a0/g, ' ')
-        .replace(/\r/g, '')
-        .replace(/[ \t]{2,}/g, ' ')
-        .replace(/\n{3,}/g, '\n\n');
+        .replace(/\r\n?/g, '\n');
       return this.restoreKnownRedactions(normalized, state);
     }
 
@@ -893,9 +948,7 @@ class PrivacyShield {
       const raw = element.textContent || element.innerText || '';
       return raw
         .replace(/\u00a0/g, ' ')
-        .replace(/\r/g, '')
-        .replace(/[ \t]{2,}/g, ' ')
-        .replace(/\n{3,}/g, '\n\n');
+        .replace(/\r\n?/g, '\n');
     }
 
     return String(element.value || '');
@@ -1251,17 +1304,17 @@ class PrivacyShield {
 
       // Append any plain text before this span
       if (cursor < start) {
-        parts.push(this.escapeHtml(sourceText.slice(cursor, start)));
+        parts.push(this.textToHtmlPreserveLayout(sourceText.slice(cursor, start)));
       }
 
       // Build the span as an HTML string
       const originalText = item.text || sourceText.slice(start, end);
       const color = this.getTypeColor(item.label);
       const stagger = `${Math.min(index * 30, 280)}ms`;
-      const escapedOriginal = this.escapeHtml(originalText);
+      const escapedOriginal = this.textToHtmlPreserveLayout(originalText);
 
       if (item.redacted) {
-        const displayText = this.escapeHtml(this.getReplacementText(item));
+        const displayText = this.textToHtmlPreserveLayout(this.getReplacementText(item));
         const extraClasses = ['ps-redaction-active'];
         if (this.settings?.redactionMode === 'anonymize') {
           extraClasses.push('ps-redaction-anonymized');
@@ -1291,7 +1344,7 @@ class PrivacyShield {
 
     // Append any remaining text after the last span
     if (cursor < sourceText.length) {
-      parts.push(this.escapeHtml(sourceText.slice(cursor)));
+      parts.push(this.textToHtmlPreserveLayout(sourceText.slice(cursor)));
     }
 
     return parts.join('');
@@ -1304,6 +1357,50 @@ class PrivacyShield {
       .replace(/"/g, '&quot;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+  }
+
+  textToHtmlPreserveLayout(str) {
+    const value = String(str || '').replace(/\r\n?/g, '\n');
+    let out = '';
+    let lineStart = true;
+
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value[i];
+
+      if (ch === '\n') {
+        out += '<br>';
+        lineStart = true;
+        continue;
+      }
+
+      if (ch === '\t') {
+        out += '&nbsp;&nbsp;&nbsp;&nbsp;';
+        lineStart = false;
+        continue;
+      }
+
+      if (ch === ' ') {
+        const prev = i > 0 ? value[i - 1] : '\n';
+        const next = i + 1 < value.length ? value[i + 1] : '\n';
+        const preserve = lineStart || prev === ' ' || next === ' ';
+        out += preserve ? '&nbsp;' : ' ';
+        lineStart = false;
+        continue;
+      }
+
+      if (ch === '&') {
+        out += '&amp;';
+      } else if (ch === '<') {
+        out += '&lt;';
+      } else if (ch === '>') {
+        out += '&gt;';
+      } else {
+        out += ch;
+      }
+      lineStart = false;
+    }
+
+    return out;
   }
 
   /**
@@ -2031,6 +2128,12 @@ class PrivacyShield {
 
     this.autoRedactTimers.forEach((timer) => clearTimeout(timer));
     this.autoRedactTimers.clear();
+
+    this.scanningPills.forEach((pill) => {
+      if (pill?.psHideTimer) clearTimeout(pill.psHideTimer);
+      pill?.remove?.();
+    });
+    this.scanningPills.clear();
 
     this.hidePopover();
 
