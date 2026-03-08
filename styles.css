@@ -100,7 +100,7 @@
   pointer-events: none;
   opacity: 0;
   transform: translateY(8px) scale(0.96);
-  transition: opacity 190ms ease, transform 190ms ease;
+  transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1), transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .ps-scan-dot {
@@ -154,9 +154,9 @@
   border-radius: 2px;
   padding: 0 1px;
   transition:
-    background-color 120ms ease,
-    text-decoration-color 120ms ease;
-  animation: ps-underline-reveal 220ms ease-out both;
+    background-color 200ms ease,
+    text-decoration-color 200ms ease;
+  animation: ps-underline-reveal 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--stagger, 0ms);
 }
 
@@ -165,8 +165,8 @@
 }
 
 @keyframes ps-underline-reveal {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ─── Redacted span (after redact action) ─── */
@@ -184,16 +184,17 @@
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   transition:
-    background-color 120ms ease,
-    color 120ms ease,
-    opacity 120ms ease;
-  animation: ps-redact-in 180ms ease-out both;
+    background-color 200ms ease,
+    color 200ms ease,
+    opacity 200ms ease,
+    outline-color 200ms ease;
+  animation: ps-redact-in 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--stagger, 0ms);
 }
 
 @keyframes ps-redact-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scaleX(0.82); transform-origin: left center; }
+  to   { opacity: 1; transform: scaleX(1);    transform-origin: left center; }
 }
 
 .ps-redaction-active {
@@ -216,10 +217,68 @@
 }
 
 /* Hover — reveal original text peek */
-.ps-redaction-hover-preview {
-  background: color-mix(in srgb, #fbbf24 18%, transparent);
-  outline-color: color-mix(in srgb, #d97706 28%, transparent);
-  color: #1c1917;
+/* The .ps-redaction-hover-preview class is no longer applied to spans.
+   Hover reveal is handled entirely by .ps-reveal-overlay (a fixed-position
+   element in document.body, outside the contenteditable). This avoids any
+   DOM mutation inside the editor, which ProseMirror/Lexical would reconcile away. */
+
+/* ── Reveal overlay (Grammarly approach — lives in document.body) ── */
+.ps-reveal-overlay {
+  background: color-mix(in srgb, #fbbf24 18%, #fffbeb);
+  color: #92400e;
+  outline: 1.5px solid color-mix(in srgb, #d97706 35%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+  animation: ps-reveal-in 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes ps-reveal-in {
+  from { opacity: 0; transform: translateX(-50%) scale(0.94); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+/* ── External overlay highlights (AI sites — spans stripped by editor) ── */
+/* These live in document.body at position:fixed, completely outside the editor DOM */
+.ps-overlay-hl {
+  pointer-events: all;
+  cursor: pointer;
+  z-index: 2147483100;
+  box-sizing: border-box;
+  border-radius: 2px;
+  animation: ps-overlay-hl-in 350ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Redacted token — amber/tinted box matching the redaction style */
+.ps-overlay-hl-redacted {
+  background: color-mix(in srgb, var(--hl-color, #D32F2F) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--hl-color, #D32F2F) 28%, transparent);
+  transition: background 180ms ease, outline-color 180ms ease;
+}
+.ps-overlay-hl-redacted:hover {
+  background: color-mix(in srgb, var(--hl-color, #D32F2F) 16%, transparent);
+  outline-color: color-mix(in srgb, var(--hl-color, #D32F2F) 45%, transparent);
+}
+
+/* Underline — wavy line drawn below the detected text */
+.ps-overlay-hl-underline {
+  background: transparent;
+  border-bottom: 1.5px solid var(--hl-color, #D32F2F);
+  /* Simulate wavy using two layered gradients */
+  border-bottom: none;
+  background-image:
+    linear-gradient(135deg, transparent 45%, var(--hl-color, #D32F2F) 45%, var(--hl-color, #D32F2F) 55%, transparent 55%),
+    linear-gradient(45deg,  transparent 45%, var(--hl-color, #D32F2F) 45%, var(--hl-color, #D32F2F) 55%, transparent 55%);
+  background-size: 6px 3px;
+  background-repeat: repeat-x;
+  background-position: bottom left;
+}
+.ps-overlay-hl-underline:hover {
+  background-color: color-mix(in srgb, var(--hl-color, #D32F2F) 8%, transparent);
+}
+
+@keyframes ps-overlay-hl-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* Undo ripple — subtle, fast */

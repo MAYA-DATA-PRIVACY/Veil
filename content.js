@@ -177,6 +177,7 @@ class PrivacyShield {
     this.redactions = new Map();        // element → { sourceText, sourceHtml, mode, items[] }
     this.aliasLedgers = new WeakMap();
     this.lastDetectionSignature = new Map();
+    this.lastDetectedRevisions = new Map();   // element → revision at which detection last completed
     this.debounceTimers = new Map();
     this.inputRevisions = new Map();
     this.lastAnalyzedSnapshot = new Map();
@@ -190,12 +191,19 @@ class PrivacyShield {
 
     this.activePopover = null;
     this.activePopoverHideTimer = null;
+    this.activeRevealOverlay = null;
+
+    // Overlay highlights — fixed-position divs in document.body that visually
+    // decorate text inside rich-editor contenteditables without touching their DOM.
+    this._ceOverlayHighlights = new Map(); // element → hl[] array
+    this._ceOverlayTimers = new Map();     // element → setTimeout id
 
     this.domObserver = null;
     this.stateReconcileTimer = null;
     this.handleViewportChange = () => {
       this.repositionTokenTrays();
       this.repositionScanningPills();
+      this._refreshAllOverlays();
     };
     this.handleRuntimeMessage = this.handleRuntimeMessage.bind(this);
     chrome.runtime.onMessage.addListener(this.handleRuntimeMessage);
@@ -683,6 +691,15 @@ class PrivacyShield {
     const isComposing = element.dataset.psComposing === '1';
     if (isComposing && reason !== 'blur') return;
 
+    // Don't re-scan on blur when nothing new has been typed since the last
+    // completed detection. Without this guard, blur reads the already-rendered
+    // replacement text (e.g. "[NAME]") as if it were new input, fails the
+    // sourceText equality check, and fires a redundant detection that clears state.
+    if (reason === 'blur' && this.redactions.has(element)) {
+      const rev = this.getInputRevision(element);
+      if (this.lastDetectedRevisions.get(element) === rev) return;
+    }
+
     if (this.debounceTimers.has(element)) {
       clearTimeout(this.debounceTimers.get(element));
     }
@@ -774,7 +791,7 @@ class PrivacyShield {
       pill.remove();
       this.scanningPills.delete(element);
       pill.psHideTimer = null;
-    }, 240);
+    }, 900);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -930,6 +947,7 @@ class PrivacyShield {
       };
 
       this.redactions.set(element, state);
+      this.lastDetectedRevisions.set(element, currentRevision);
 
       // Render: existing redacted items stay redacted, new items get underlines
       this.renderElement(element);
@@ -1307,6 +1325,11 @@ class PrivacyShield {
         this.playCommitAnimation(element);
       }
       this.removeTokenTray(element);
+
+      // Schedule overlay pass: if the host editor (Lexical, ProseMirror, Angular, etc.)
+      // strips our injected spans during its reconciliation cycle, we draw external
+      // fixed-position highlights instead so visuals survive without touching the editor DOM.
+      this._scheduleOverlayUpdate(element);
       return;
     }
 
@@ -1641,9 +1664,17 @@ class PrivacyShield {
     });
 
     // IMPORTANT: mouseenter/mouseleave do NOT bubble, so delegating them on the
-    // parent element never fires for child spans. Use mouseover/mouseout instead —
-    // they DO bubble — and check relatedTarget to avoid spurious leave events when
-    // moving between child nodes within the same span.
+    // parent element never fires for child spans. Use mouseover/mouseout instead.
+    //
+    // KEY INSIGHT (Grammarly approach): rich editors like ProseMirror/Lexical run a
+    // MutationObserver with { attributes: true, subtree: true } on their contenteditable.
+    // Any attribute change on a child node (even a CSS class toggle) triggers their
+    // reconciliation loop which re-renders the DOM — wiping our spans before rAF fires.
+    //
+    // Fix: capture getBoundingClientRect() SYNCHRONOUSLY during the event handler
+    // (before any microtask/reconciliation can run), then render the reveal overlay as
+    // a fixed-position div OUTSIDE the contenteditable. Zero DOM mutations inside the
+    // editor during hover.
     element.addEventListener('mouseover', (event) => {
       const span = event.target.closest('.ps-redaction, .ps-pii-underline');
       if (!span || !element.contains(span)) return;
@@ -1651,15 +1682,17 @@ class PrivacyShield {
       if (Number.isNaN(index)) return;
       const mode = span.classList.contains('ps-pii-underline') ? 'underline' : 'redacted';
 
+      // Capture rect NOW — synchronously — before any reconciliation microtask runs.
+      const anchorRect = span.getBoundingClientRect();
+
       if (mode === 'redacted') {
         const currentState = this.redactions.get(element);
         const current = currentState?.items?.[index];
         if (current?.redacted) {
-          span.classList.add('ps-redaction-hover-preview');
-          span.textContent = current.text;
+          this.showRevealOverlay(current.text, anchorRect, span);
         }
       }
-      this.showPopover(span, element, index, mode);
+      this.showPopover(span, element, index, mode, anchorRect);
     });
 
     element.addEventListener('mouseout', (event) => {
@@ -1667,17 +1700,7 @@ class PrivacyShield {
       if (!span || !element.contains(span)) return;
       // Skip if the pointer is still within the same span (moving between child nodes)
       if (span.contains(event.relatedTarget)) return;
-      const index = parseInt(span.getAttribute('data-index'), 10);
-      if (Number.isNaN(index)) return;
-
-      if (span.classList.contains('ps-redaction')) {
-        const currentState = this.redactions.get(element);
-        const current = currentState?.items?.[index];
-        if (current?.redacted) {
-          span.classList.remove('ps-redaction-hover-preview');
-          span.textContent = this.getReplacementText(current);
-        }
-      }
+      this.hideRevealOverlay();
       this.schedulePopoverHide();
     });
   }
@@ -1812,12 +1835,17 @@ class PrivacyShield {
   // Popover (per-span anchored tooltip – Grammarly-style)
   // ═══════════════════════════════════════════════════════════
 
-  showPopover(anchorSpan, element, index, mode) {
+  // anchorRect: pre-captured getBoundingClientRect() from the hover event.
+  // Passing it avoids relying on the span still being in the DOM by the time
+  // requestAnimationFrame fires (rich editors may reconcile in between).
+  showPopover(anchorSpan, element, index, mode, anchorRect = null) {
     this.cancelPopoverHide();
     this.hidePopover();
 
     const state = this.redactions.get(element);
-    if (!state || !state.items[index] || !anchorSpan?.isConnected) return;
+    if (!state || !state.items[index]) return;
+    // Only bail if we have neither a live span nor a pre-captured rect.
+    if (!anchorRect && !anchorSpan?.isConnected) return;
 
     const item = state.items[index];
 
@@ -1870,14 +1898,20 @@ class PrivacyShield {
         this.dismissDetection(element, index);
       }
       this.hidePopover();
+      this.hideRevealOverlay();
     });
 
     document.body.appendChild(popover);
     this.activePopover = popover;
 
-    // Position above the anchor span
+    // Position above the anchor span.
+    // Use the pre-captured rect when available so positioning works even if
+    // the editor has already reconciled the span away by the time rAF fires.
     requestAnimationFrame(() => {
-      const rect = anchorSpan.getBoundingClientRect();
+      const rect = anchorRect
+        || (anchorSpan?.isConnected ? anchorSpan.getBoundingClientRect() : null);
+      if (!rect || rect.width === 0) { this.hidePopover(); return; }
+
       const popRect = popover.getBoundingClientRect();
       const top = window.scrollY + rect.top - popRect.height - 12;
       const left = window.scrollX + rect.left + (rect.width / 2) - (popRect.width / 2);
@@ -1894,6 +1928,201 @@ class PrivacyShield {
     const old = this.activePopover;
     setTimeout(() => old.remove(), 200);
     this.activePopover = null;
+  }
+
+  // ── Reveal overlay (fixed-position, outside contenteditable DOM) ──────────
+  // Displays the original text visually over the redacted span on hover,
+  // without touching any node inside the contenteditable. This survives
+  // rich-editor DOM reconciliation (ProseMirror, Lexical, etc.).
+
+  showRevealOverlay(originalText, anchorRect, refSpan) {
+    this.hideRevealOverlay();
+    if (!anchorRect || anchorRect.width === 0) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ps-reveal-overlay';
+
+    // Inherit typographic properties from the span so text aligns naturally.
+    const cs = window.getComputedStyle(refSpan);
+    overlay.style.cssText = [
+      `position:fixed`,
+      `top:${anchorRect.top}px`,
+      // Centre the overlay horizontally over the span; width is auto so longer
+      // original text doesn't get clipped.
+      `left:${anchorRect.left + anchorRect.width / 2}px`,
+      `transform:translateX(-50%)`,
+      `min-width:${anchorRect.width}px`,
+      `height:${anchorRect.height}px`,
+      `display:flex`,
+      `align-items:center`,
+      `justify-content:center`,
+      `white-space:nowrap`,
+      `pointer-events:none`,
+      `z-index:2147483100`,
+      `font-size:${cs.fontSize}`,
+      `font-family:${cs.fontFamily}`,
+      `font-weight:${cs.fontWeight}`,
+      `line-height:${cs.lineHeight}`,
+      `letter-spacing:${cs.letterSpacing}`,
+      `padding:1px 4px`,
+      `border-radius:3px`,
+    ].join(';');
+
+    // Safe — this element lives in document.body, not in the contenteditable.
+    overlay.textContent = originalText;
+    document.body.appendChild(overlay);
+    this.activeRevealOverlay = overlay;
+  }
+
+  hideRevealOverlay() {
+    if (this.activeRevealOverlay) {
+      this.activeRevealOverlay.remove();
+      this.activeRevealOverlay = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // External overlay highlights for hostile contenteditables
+  // (ChatGPT / Gemini / Claude — editors that strip injected spans)
+  // ═══════════════════════════════════════════════════════════
+
+  _scheduleOverlayUpdate(element) {
+    clearTimeout(this._ceOverlayTimers.get(element));
+    this._ceOverlayTimers.set(element, setTimeout(() => {
+      this._updateElementOverlay(element);
+    }, 90)); // 90ms — enough for any editor reconciliation microtask/macrotask to complete
+  }
+
+  _updateElementOverlay(element) {
+    this._clearElementOverlay(element);
+
+    const state = this.redactions.get(element);
+    if (!state || !element.isConnected || !state.items.length) return;
+
+    // If our spans survived innerHTML injection (regular site), the existing span
+    // delegation handles everything — no overlay needed.
+    if (element.querySelector('.ps-redaction, .ps-pii-underline')) return;
+
+    // Spans were stripped by the editor. Draw external fixed-position highlights.
+    const highlights = [];
+
+    state.items.forEach((item, index) => {
+      const range = item.redacted
+        ? this._getTokenRange(element, this.getReplacementText(item))
+        : this._getTextNodeRange(element, item.start, item.end);
+
+      if (!range) return;
+      const rect = range.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+
+      const hl = document.createElement('div');
+      hl.className = `ps-overlay-hl ${item.redacted ? 'ps-overlay-hl-redacted' : 'ps-overlay-hl-underline'}`;
+      hl.setAttribute('data-index', String(index));
+
+      const color = this.getTypeColor(item.label);
+      hl.style.cssText = [
+        'position:fixed',
+        `left:${rect.left}px`,
+        `top:${rect.top}px`,
+        `width:${rect.width}px`,
+        `height:${rect.height}px`,
+        `--hl-color:${color}`,
+      ].join(';');
+
+      hl.addEventListener('mouseenter', () => {
+        const hlRect = hl.getBoundingClientRect();
+        if (item.redacted) this.showRevealOverlay(item.text, hlRect, hl);
+        this.showPopover(null, element, index, item.redacted ? 'redacted' : 'underline', hlRect);
+      });
+      hl.addEventListener('mouseleave', () => {
+        this.hideRevealOverlay();
+        this.schedulePopoverHide();
+      });
+      hl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.hideRevealOverlay();
+        if (item.redacted) {
+          this.toggleRedaction(element, index);
+        } else {
+          this.redactSingle(element, index);
+        }
+      });
+
+      document.body.appendChild(hl);
+      highlights.push(hl);
+    });
+
+    if (highlights.length) {
+      this._ceOverlayHighlights.set(element, highlights);
+    }
+  }
+
+  _clearElementOverlay(element) {
+    const highlights = this._ceOverlayHighlights.get(element);
+    if (highlights) {
+      highlights.forEach((hl) => hl.remove());
+      this._ceOverlayHighlights.delete(element);
+    }
+    clearTimeout(this._ceOverlayTimers.get(element));
+    this._ceOverlayTimers.delete(element);
+  }
+
+  _refreshAllOverlays() {
+    this._ceOverlayHighlights.forEach((_, element) => {
+      this._scheduleOverlayUpdate(element);
+    });
+  }
+
+  // Walk text nodes in element to build a Range for character offsets [start, end].
+  _getTextNodeRange(element, start, end) {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let charCount = 0;
+    let startNode = null, startOff = 0, endNode = null, endOff = 0;
+    let node;
+
+    while ((node = walker.nextNode())) {
+      const len = node.textContent.length;
+
+      if (!startNode && charCount + len > start) {
+        startNode = node;
+        startOff = start - charCount;
+      }
+      if (startNode && charCount + len >= end) {
+        endNode = node;
+        endOff = end - charCount;
+        break;
+      }
+      charCount += len;
+    }
+
+    if (!startNode || !endNode) return null;
+    try {
+      const range = document.createRange();
+      range.setStart(startNode, Math.min(startOff, startNode.textContent.length));
+      range.setEnd(endNode, Math.min(endOff, endNode.textContent.length));
+      return range;
+    } catch { return null; }
+  }
+
+  // Walk text nodes to find the first occurrence of tokenText and return its Range.
+  _getTokenRange(element, tokenText) {
+    if (!tokenText) return null;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node;
+
+    while ((node = walker.nextNode())) {
+      const idx = node.textContent.indexOf(tokenText);
+      if (idx !== -1) {
+        try {
+          const range = document.createRange();
+          range.setStart(node, idx);
+          range.setEnd(node, idx + tokenText.length);
+          return range;
+        } catch { return null; }
+      }
+    }
+    return null;
   }
 
   schedulePopoverHide() {
@@ -2205,6 +2434,7 @@ class PrivacyShield {
 
   clearElementState(element) {
     this.clearHighlights(element);
+    this._clearElementOverlay(element);
     this.redactions.delete(element);
     this.lastDetectionSignature.delete(element);
     this.lastAnalyzedSnapshot.delete(element);
