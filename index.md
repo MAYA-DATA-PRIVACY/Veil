@@ -1,7 +1,6 @@
 ---
-layout: home
+layout: default
 title: Home
-nav_order: 1
 ---
 
 # Veil
@@ -28,11 +27,11 @@ Detected PII is highlighted inline, like Grammarly for privacy. One click redact
 
 When you paste a document into ChatGPT, you might not notice the employee names, email addresses, or SSNs buried in the text. Veil does — before you hit send.
 
-| Problem | Veil's answer |
-|---------|--------------|
-| LLMs train on user data | Veil redacts PII before it leaves your browser |
-| Cloud-based PII tools send your text to yet another server | Veil's AI runs **100% locally** via GLiNER2 |
-| Manual review is slow and error-prone | Veil highlights PII in real time as you type |
+| Problem                                                    | Veil's answer                                  |
+| ---------------------------------------------------------- | ---------------------------------------------- |
+| LLMs train on user data                                    | Veil redacts PII before it leaves your browser |
+| Cloud-based PII tools send your text to yet another server | Veil's AI runs **100% locally** via GLiNER2    |
+| Manual review is slow and error-prone                      | Veil highlights PII in real time as you type   |
 
 ---
 
@@ -57,18 +56,18 @@ Plus custom regex patterns for OpenAI API keys, AWS credentials, and more.
 
 ## Supported Platforms
 
-| Browser | Status |
-|---------|--------|
-| Chrome  | ✅ Supported |
+| Browser                 | Status      |
+| ----------------------- | ----------- |
+| Chrome                  | ✅ Supported |
 | Chromium-based browsers | ✅ Supported |
-| Firefox | 🔜 Planned |
+| Firefox                 | 🔜 Planned   |
 
-| LLM Site | Status |
-|----------|--------|
-| ChatGPT  | ✅ |
-| Claude.ai | ✅ |
-| Google Gemini | ✅ |
-| Any site with a textarea | ✅ |
+| LLM Site                 | Status |
+| ------------------------ | ------ |
+| ChatGPT                  | ✅      |
+| Claude.ai                | ✅      |
+| Google Gemini            | ✅      |
+| Any site with a textarea | ✅      |
 
 ---
 
