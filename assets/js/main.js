@@ -24,7 +24,7 @@
   var siteNav = document.querySelector('.site-nav');
   if (siteNav) {
     var onScroll = function () {
-      if (window.scrollY > 60) {
+      if (window.scrollY > 80) {
         siteNav.classList.add('nav-scrolled');
       } else {
         siteNav.classList.remove('nav-scrolled');
