@@ -1,19 +1,47 @@
-<nav>
-  <a class="nav-logo" href="{{ site.baseurl }}/">
-    <img src="{{ site.baseurl }}/assets/icons/veil-icon.svg" alt="Veil icon" class="nav-logo-icon" />
-    <span class="nav-logo-name">Veil</span>
-  </a>
-  <div class="nav-right">
-    <a class="nav-link" href="{{ site.baseurl }}/how-it-works">How it works</a>
-    <a class="nav-link" href="{{ site.baseurl }}/#key-features">Features</a>
-    <a class="nav-link" href="{{ site.baseurl }}/install">Install</a>
-    <a class="nav-link" href="{{ site.github_url }}" target="_blank" rel="noreferrer">GitHub</a>
-    <a class="nav-btn" href="{{ site.releases_url }}" target="_blank" rel="noreferrer">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-        <path d="M8 2v8m0 0l-3-3m3 3l3-3" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1" stroke-linecap="round"/>
-      </svg>
-      Download
-    </a>
-  </div>
-</nav>
+<header>
+  <nav class="site-nav" aria-label="Main navigation">
+    <div class="nav-inner">
+
+      <a class="nav-logo" href="{{ site.baseurl }}/" aria-label="Veil home">
+        <img src="{{ site.baseurl }}/assets/icons/veil-icon.svg"
+             alt=""
+             class="nav-logo-icon"
+             width="28" height="28" />
+        <span class="nav-logo-name">Veil</span>
+      </a>
+
+      <ul class="nav-links" role="list">
+        <li><a href="{{ site.baseurl }}/how-it-works">How it works</a></li>
+        <li><a href="{{ site.baseurl }}/#features">Features</a></li>
+        <li><a href="{{ site.baseurl }}/install">Install</a></li>
+        <li>
+          <a href="{{ site.github_url }}" target="_blank" rel="noreferrer noopener">
+            GitHub
+          </a>
+        </li>
+      </ul>
+
+      <div class="nav-right">
+        <a class="nav-cta"
+           href="{{ site.releases_url }}"
+           target="_blank"
+           rel="noreferrer noopener">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor"
+               stroke-width="1.8" aria-hidden="true">
+            <path d="M8 2v8m0 0l-3-3m3 3l3-3" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1" stroke-linecap="round"/>
+          </svg>
+          Download
+        </a>
+
+        <button class="nav-toggle" aria-expanded="false" aria-label="Toggle navigation">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor"
+               stroke-width="1.6" aria-hidden="true">
+            <path d="M3 5h14M3 10h14M3 15h14" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+    </div>
+  </nav>
+</header>

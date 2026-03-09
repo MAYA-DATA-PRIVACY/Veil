@@ -7,9 +7,12 @@ author:
   name: Nishikant Mandal
   github: nishikantmandal007
 
-github_repo: https://github.com/nishikantmandal007/Veil
-github_url: https://github.com/nishikantmandal007/Veil
-releases_url: https://github.com/nishikantmandal007/Veil/releases/latest
+github_url:       https://github.com/nishikantmandal007/Veil
+releases_url:     https://github.com/nishikantmandal007/Veil/releases/latest
+changelog_url:    https://github.com/nishikantmandal007/Veil/blob/main/CHANGELOG.md
+contributing_url: https://github.com/nishikantmandal007/Veil/blob/main/contributing.md
+security_url:     https://github.com/nishikantmandal007/Veil/blob/main/SECURITY.md
+license_url:      https://github.com/nishikantmandal007/Veil/blob/main/LICENSE
 
 plugins:
   - jekyll-seo-tag

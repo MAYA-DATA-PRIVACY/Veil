@@ -1,0 +1,425 @@
+---
+layout: default
+title: Home
+description: Real-time PII detection and redaction for AI chat interfaces. Powered by GLiNER2. Your data never leaves your machine.
+---
+
+<!-- ══════════════════════
+     HERO
+══════════════════════ -->
+<section class="hero">
+  <div class="hero-inner">
+
+    <span class="badge">
+      <span class="badge-dot" aria-hidden="true"></span>
+      Open source &middot; Local AI &middot; Zero cloud
+    </span>
+
+    <h1 class="hero-title">
+      Before you hit send,<br>
+      <em>Veil already knows.</em>
+    </h1>
+
+    <p class="hero-sub">
+      Veil sits in your browser and watches every text field on ChatGPT, Claude,
+      and Gemini. The moment it spots something sensitive — a name, an email, a
+      social security number — it flags it right where you typed it. The AI that
+      does the detecting runs entirely on your own machine.
+    </p>
+
+    <div class="hero-actions">
+      <a href="{{ site.baseurl }}/install" class="btn-primary">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.8" aria-hidden="true">
+          <path d="M8 2v8m0 0l-3-3m3 3l3-3" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1" stroke-linecap="round"/>
+        </svg>
+        Get started
+      </a>
+      <a href="{{ site.github_url }}" target="_blank" rel="noreferrer noopener"
+         class="btn-secondary">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" width="14" height="14">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                   0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+                   -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+                   .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+                   -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0
+                   1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82
+                   1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01
+                   1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        View on GitHub
+      </a>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════════════════
+     DEMO MOCKUP
+══════════════════════ -->
+<div class="demo-section">
+  <div class="demo-outer">
+    <div class="demo-card" role="img" aria-label="Demo: PII detection before and after">
+
+      <div class="demo-titlebar" aria-hidden="true">
+        <span class="demo-dot"></span>
+        <span class="demo-dot"></span>
+        <span class="demo-dot"></span>
+        <span class="demo-url-bar">chatgpt.com</span>
+      </div>
+
+      <div class="demo-split">
+        <!-- Before -->
+        <div class="demo-pane">
+          <p class="demo-pane-label">Without Veil</p>
+          <p class="demo-text">
+            Hi, I need help drafting a termination letter for
+            <span class="pii">Sarah Mitchell</span>,
+            employee at <span class="pii">Acme Corp</span>.
+            Her SSN is <span class="pii">482-66-1209</span>
+            and she can be reached at
+            <span class="pii">sarah.m@acmecorp.com</span>
+            or <span class="pii">(415) 555-0187</span>.
+          </p>
+        </div>
+
+        <div class="demo-divider" aria-hidden="true"></div>
+
+        <!-- After -->
+        <div class="demo-pane redacted">
+          <p class="demo-pane-label">With Veil — one click to redact</p>
+          <p class="demo-text">
+            Hi, I need help drafting a termination letter for
+            <span class="pii-tag person">[PERSON]</span>,
+            employee at <span class="pii-tag org">[ORG]</span>.
+            Her SSN is <span class="pii-tag ssn">[SSN]</span>
+            and she can be reached at
+            <span class="pii-tag email">[EMAIL]</span>
+            or <span class="pii-tag phone">[PHONE]</span>.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<hr class="rule" style="max-width: var(--container); margin: 0 auto;">
+
+<!-- ══════════════════════
+     HOW IT WORKS (PIPELINE)
+══════════════════════ -->
+<section class="section" id="how-it-works">
+  <div class="container">
+    <p class="section-eyebrow">Under the hood</p>
+    <h2 class="section-title">Three things happen<br>when you type</h2>
+    <p class="section-lead">
+      Every keystroke triggers a lightweight detection pipeline that runs
+      entirely on your machine. No round trips, no waiting on a cloud API,
+      no logs.
+    </p>
+
+    <div class="pipeline">
+
+      <div class="pipeline-step">
+        <p class="pipeline-num">01</p>
+        <div class="pipeline-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 4h12M4 8h8M6 12h4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Regex pre-scan</h3>
+        <p>
+          Patterns with a predictable format — emails, SSNs, API keys, phone
+          numbers — are caught instantly by built-in regex rules. No model
+          needed, zero latency.
+        </p>
+      </div>
+
+      <div class="pipeline-step">
+        <p class="pipeline-num">02</p>
+        <div class="pipeline-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="3"/>
+            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.22 3.22l1.41 1.41M11.37 11.37l1.41 1.41
+                     M3.22 12.78l1.41-1.41M11.37 4.63l1.41-1.41" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>GLiNER2 NER model</h3>
+        <p>
+          For context-dependent PII — names, organisations, addresses — Veil
+          calls a local Python server running GLiNER2. The model sits on your
+          CPU or GPU. Nothing reaches the internet.
+        </p>
+      </div>
+
+      <div class="pipeline-step">
+        <p class="pipeline-num">03</p>
+        <div class="pipeline-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 8l3 3 7-7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Merge &amp; highlight</h3>
+        <p>
+          Results from both passes are merged, overlapping spans are resolved,
+          and the detections are rendered as inline highlights right inside the
+          input field — no popups, no dialogs.
+        </p>
+      </div>
+
+    </div>
+
+    <div style="margin-top: 24px; text-align: right;">
+      <a href="{{ site.baseurl }}/how-it-works" class="btn-secondary" style="display: inline-flex;">
+        Full technical breakdown
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"
+             width="13" height="13" aria-hidden="true">
+          <path d="M3 8h10M9 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<hr class="rule" style="max-width: var(--container); margin: 0 auto;">
+
+<!-- ══════════════════════
+     FEATURES
+══════════════════════ -->
+<section class="section" id="features">
+  <div class="container">
+    <p class="section-eyebrow">What you get</p>
+    <h2 class="section-title">Built for the way people<br>actually use AI</h2>
+    <p class="section-lead">
+      Veil handles the weird edge cases — rich-text editors, content-editable
+      divs, fast typers, slow models — because that's where real usage happens.
+    </p>
+
+    <div class="features-grid">
+
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="2"/>
+            <path d="M5 8h6M8 5v6" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Runs 100% locally</h3>
+        <p>
+          The GLiNER2 model lives on your machine. Your text never touches
+          a third-party server for detection — not even Veil's.
+        </p>
+      </div>
+
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 2l1.5 4.5H14l-3.5 2.5 1.5 4.5L8 11l-4 2.5 1.5-4.5L2 6.5h4.5z"
+                  stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Regex fallback</h3>
+        <p>
+          Even if the local server isn't running, Veil catches emails, phone
+          numbers, API keys, SSNs, and more via fast built-in patterns.
+        </p>
+      </div>
+
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 4h12v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4z"/>
+            <path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Inline redaction</h3>
+        <p>
+          Click a highlight to replace it with a safe label like
+          <code style="font-family: var(--mono); font-size: 0.78em; background: var(--bg-alt); padding: 1px 5px; border-radius: 3px;">[PERSON]</code>
+          or <code style="font-family: var(--mono); font-size: 0.78em; background: var(--bg-alt); padding: 1px 5px; border-radius: 3px;">[SSN]</code>.
+          No modal windows. No friction.
+        </p>
+      </div>
+
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 3h10v10H3z" rx="1"/>
+            <path d="M6 3V1M10 3V1M3 7h10" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Content-editable aware</h3>
+        <p>
+          Works inside Gemini's fancy text box, Notion, and any
+          <code style="font-family: var(--mono); font-size: 0.78em; background: var(--bg-alt); padding: 1px 5px; border-radius: 3px;">contenteditable</code>
+          element — not just plain textareas.
+        </p>
+      </div>
+
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="6"/>
+            <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Health monitoring</h3>
+        <p>
+          The extension watches the local server and lets you know if it goes
+          down. No silent failures — you always know whether detection is active.
+        </p>
+      </div>
+
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="4" width="12" height="9" rx="1"/>
+            <path d="M5 4V3h6v1" stroke-linecap="round"/>
+            <path d="M8 8v3M6 9h4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Cross-platform autostart</h3>
+        <p>
+          The local server can start automatically on login on Linux, macOS,
+          and Windows. You set it once and forget about it.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="rule" style="max-width: var(--container); margin: 0 auto;">
+
+<!-- ══════════════════════
+     PII TYPES
+══════════════════════ -->
+<section class="section">
+  <div class="container">
+    <p class="section-eyebrow">What gets detected</p>
+    <h2 class="section-title">Nine PII types out of the box,<br>plus custom patterns</h2>
+    <p class="section-lead">
+      GLiNER2 handles the context-dependent stuff. Regex handles the
+      structured stuff. Together they cover the data you really don't
+      want leaking into a model's training corpus.
+    </p>
+
+    <div class="pii-grid">
+      <div class="pii-pill">
+        Person name
+        <code class="src-model">model</code>
+      </div>
+      <div class="pii-pill">
+        Email address
+        <code class="src-regex">regex</code>
+      </div>
+      <div class="pii-pill">
+        Phone number
+        <code class="src-regex">regex</code>
+      </div>
+      <div class="pii-pill">
+        Physical address
+        <code class="src-model">model</code>
+      </div>
+      <div class="pii-pill">
+        Social Security Number
+        <code class="src-regex">regex</code>
+      </div>
+      <div class="pii-pill">
+        Credit card number
+        <code class="src-regex">regex</code>
+      </div>
+      <div class="pii-pill">
+        Date of birth
+        <code class="src-model">model</code>
+      </div>
+      <div class="pii-pill">
+        Location
+        <code class="src-model">model</code>
+      </div>
+      <div class="pii-pill">
+        Organisation
+        <code class="src-model">model</code>
+      </div>
+      <div class="pii-pill">
+        OpenAI / AWS API keys
+        <code class="src-regex">regex</code>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule" style="max-width: var(--container); margin: 0 auto;">
+
+<!-- ══════════════════════
+     PRIVACY CARD
+══════════════════════ -->
+<section class="section section--alt">
+  <div class="container">
+    <p class="section-eyebrow">Privacy guarantees</p>
+    <h2 class="section-title">The things we'll never do</h2>
+
+    <div class="privacy-card">
+
+      <div class="privacy-item">
+        <p class="privacy-item-title">No cloud calls for detection</p>
+        <p>
+          Detection runs on GLiNER2, which lives on your machine at
+          <code>127.0.0.1:8765</code>. That address is loopback-only —
+          physically unreachable from outside your device.
+        </p>
+      </div>
+
+      <div class="privacy-item">
+        <p class="privacy-item-title">No telemetry, ever</p>
+        <p>
+          Veil has no analytics, no crash reporting, no usage metrics. We
+          don't know how many people are using it, let alone what they're
+          typing. That's by design.
+        </p>
+      </div>
+
+      <div class="privacy-item">
+        <p class="privacy-item-title">Keys stay on your device</p>
+        <p>
+          Any API keys you configure are stored in
+          <code>chrome.storage.local</code> — not synced across devices,
+          not accessible to other extensions, not sent anywhere.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════
+     CTA
+══════════════════════ -->
+<section class="cta-section">
+  <div class="cta-inner">
+
+    <div class="cta-text">
+      <p class="section-eyebrow">Get started in minutes</p>
+      <h2 class="section-title" style="margin-bottom: 12px;">
+        Two commands and a<br>Chrome extension load.
+      </h2>
+      <p class="section-lead">
+        Clone the repo, run the setup script, load the extension in developer
+        mode. That's the whole process.
+      </p>
+    </div>
+
+    <div class="cta-actions">
+      <a href="{{ site.baseurl }}/install" class="btn-primary-inv">
+        Installation guide →
+      </a>
+      <a href="{{ site.releases_url }}" target="_blank" rel="noreferrer noopener"
+         class="btn-ghost-inv">
+        Download latest release
+      </a>
+    </div>
+
+  </div>
+</section>
