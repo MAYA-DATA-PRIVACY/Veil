@@ -41,8 +41,8 @@
     {
       platform:   'chatgpt',
       tabTitle:   'ChatGPT',
+      tabColor:   '#10A37F',
       url:        'chatgpt.com',
-      favicon:    faviconChatGPT(),
       aiElId:     'chatgpt-ai',
       typingElId: 'chatgpt-typing',
       composeId:  'chatgpt-compose',
@@ -60,8 +60,8 @@
     {
       platform:   'gemini',
       tabTitle:   'Gemini',
+      tabColor:   '#4285F4',
       url:        'gemini.google.com',
-      favicon:    faviconGemini(),
       aiElId:     'gemini-ai',
       typingElId: 'gemini-typing',
       composeId:  'gemini-compose',
@@ -79,8 +79,8 @@
     {
       platform:   'claude',
       tabTitle:   'Claude',
+      tabColor:   '#D97757',
       url:        'claude.ai',
-      favicon:    faviconClaude(),
       aiElId:     'claude-ai',
       typingElId: 'claude-typing',
       composeId:  'claude-compose',
@@ -98,7 +98,7 @@
   ];
 
   // ── DOM handles ───────────────────────────────────────────────
-  var bwFav       = document.getElementById('bw-fav');
+  var bwTabDot    = document.getElementById('bw-tab-dot');
   var bwTabTitle  = document.getElementById('bw-tab-title');
   var bwUrl       = document.getElementById('bw-url');
   var bwExtBadge  = document.getElementById('bw-ext-badge');
@@ -186,7 +186,7 @@
     if (animToken !== token) return;
 
     // 2 ── Update browser chrome
-    if (bwFav) bwFav.innerHTML = scene.favicon;
+    if (bwTabDot) bwTabDot.style.background = scene.tabColor;
     if (bwTabTitle) bwTabTitle.textContent = scene.tabTitle;
 
     // Animate URL bar change
@@ -345,30 +345,5 @@
 
   // ── Kick off ──────────────────────────────────────────────────
   runScene(0);
-
-  // ── Favicon helpers ───────────────────────────────────────────
-  function faviconChatGPT() {
-    return '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">'
-      + '<rect width="16" height="16" rx="4" fill="#000"/>'
-      + '<circle cx="8" cy="8" r="4.5" stroke="rgba(255,255,255,0.85)" stroke-width="1.2" fill="none"/>'
-      + '<circle cx="8" cy="8" r="1.6" fill="rgba(255,255,255,0.9)"/>'
-      + '</svg>';
-  }
-
-  function faviconGemini() {
-    return '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">'
-      + '<rect width="16" height="16" rx="4" fill="#1B1B1B"/>'
-      + '<path d="M8 2C8 5.31 8 8 8 8C8 8 10.69 8 14 8C10.69 8 8 8 8 8C8 8 8 10.69 8 14C8 10.69 8 8 8 8C8 8 5.31 8 2 8C5.31 8 8 8 8 8C8 8 8 5.31 8 2Z" fill="url(#fg)"/>'
-      + '<defs><linearGradient id="fg" x1="2" y1="2" x2="14" y2="14" gradientUnits="userSpaceOnUse"><stop stop-color="#4285F4"/><stop offset="1" stop-color="#DB4437"/></linearGradient></defs>'
-      + '</svg>';
-  }
-
-  function faviconClaude() {
-    return '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">'
-      + '<rect width="16" height="16" rx="4" fill="#D97757"/>'
-      + '<path d="M8 3L12 13H4L8 3Z" fill="rgba(255,255,255,0.9)"/>'
-      + '<path d="M8 7.5L10 13H6L8 7.5Z" fill="#D97757"/>'
-      + '</svg>';
-  }
 
 })();

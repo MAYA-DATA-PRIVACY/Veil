@@ -1404,31 +1404,33 @@ hr.rule {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: default;
   color: #888;
+  font-size: 1rem;
+  line-height: 1;
 }
-
-.bw-nav-btn svg { width: 10px; height: 10px; }
 
 .bw-urlbar {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   background: #fff;
   border: 1px solid #C8C8C8;
   border-radius: 7px;
-  padding: 0 12px;
+  padding: 0 10px;
   height: 28px;
   max-width: 480px;
   margin: 0 auto;
+  overflow: hidden;
 }
 
 .bw-lock {
-  width: 10px;
-  height: 11px;
-  color: #555;
+  font-size: 10px;
+  line-height: 1;
+  color: #666;
   flex-shrink: 0;
+  user-select: none;
 }
 
 .bw-url {
@@ -1438,6 +1440,9 @@ hr.rule {
   flex: 1;
   text-align: center;
   transition: opacity 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bw-toolbar-right {
@@ -1529,25 +1534,21 @@ hr.rule {
 }
 
 .sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
   padding: 6px 8px 10px;
-  font-size: 0.86rem;
-  font-weight: 600;
-  font-family: -apple-system, "SF Pro Display", sans-serif;
 }
 
-.sidebar-logo {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
+.sidebar-brand-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  letter-spacing: -0.01em;
 }
+
+.gemini-name  { color: #1a73e8; }
+.claude-name  { color: #D97757; }
 
 .sidebar-new-btn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+  display: block;
   width: 100%;
   padding: 7px 10px;
   background: none;
@@ -1555,12 +1556,10 @@ hr.rule {
   border-radius: 7px;
   font-size: 0.77rem;
   font-family: -apple-system, "SF Pro Text", sans-serif;
-  cursor: pointer;
+  cursor: default;
   text-align: left;
   transition: background 0.12s;
 }
-
-.sidebar-new-btn svg { width: 11px; height: 11px; flex-shrink: 0; }
 
 .sidebar-history { margin-top: 8px; flex: 1; }
 
@@ -1616,14 +1615,18 @@ hr.rule {
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  letter-spacing: 0.01em;
+  color: #fff;
   overflow: hidden;
+  background: #555;
 }
 
-.plat-avatar svg,
-.plat-avatar img {
-  width: 28px;
-  height: 28px;
-}
+.chatgpt-av { background: #1a1a1a; }
+.gemini-av  { background: #1a73e8; }
+.claude-av  { background: #D97757; }
 
 .plat-bubble {
   background: #F7F7F8;
@@ -1674,11 +1677,41 @@ hr.rule {
   margin-left: 1px;
   border-radius: 1px;
   animation: bwCursorBlink 1.1s step-end infinite;
+  flex-shrink: 0;
 }
 
 @keyframes bwCursorBlink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0; }
+}
+
+/* Shared send button */
+.plat-send-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.chatgpt-send-btn { background: #1a1a1a; color: #fff; }
+.gemini-send-btn  { background: #1a73e8; color: #fff; }
+.claude-send-btn  { background: #D97757; color: #fff; }
+
+/* Tab colour dot */
+.bw-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #10A37F;
+  transition: background 0.3s;
 }
 
 /* ── ChatGPT specific ── */
@@ -1721,35 +1754,16 @@ hr.rule {
   box-shadow: 0 1px 6px rgba(0,0,0,0.06);
 }
 
-.chatgpt-send-btn {
-  width: 30px;
-  height: 30px;
-  background: #1a1a1a;
-  border: none;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.chatgpt-send-btn svg { width: 14px; height: 14px; color: #fff; }
-
 /* ── Gemini specific ── */
 .gemini-sidebar {
   background: #1B1B1B;
   border-right-color: #333;
 }
 
-.gemini-sidebar .sidebar-brand { color: #fff; }
-.gemini-sidebar .sidebar-new-btn { color: rgba(255,255,255,0.8); }
-.gemini-sidebar .sidebar-new-btn svg { color: rgba(255,255,255,0.8); }
-.gemini-sidebar .sidebar-new-btn:hover { background: rgba(255,255,255,0.08); }
-.gemini-sidebar .sidebar-hist-label { color: rgba(255,255,255,0.4); }
-.gemini-sidebar .sidebar-hist-item { color: rgba(255,255,255,0.65); }
-.gemini-sidebar .sidebar-hist-item:hover { background: rgba(255,255,255,0.07); }
-.gemini-sidebar .sidebar-hist-item--active { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.9); }
+.gemini-sidebar .sidebar-new-btn { color: rgba(255,255,255,0.75); }
+.gemini-sidebar .sidebar-hist-label { color: rgba(255,255,255,0.35); }
+.gemini-sidebar .sidebar-hist-item { color: rgba(255,255,255,0.6); }
+.gemini-sidebar .sidebar-hist-item--active { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.9); font-weight: 500; }
 
 .gemini-main { background: #fff; }
 
@@ -1761,28 +1775,11 @@ hr.rule {
 }
 
 .gemini-model-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   font-size: 0.82rem;
   font-weight: 500;
   color: #1a1a1a;
   font-family: -apple-system, "SF Pro Text", sans-serif;
-  cursor: pointer;
 }
-
-.gemini-model-picker svg:first-child { width: 14px; height: 14px; }
-.gemini-model-picker svg:last-child  { width: 10px; height: 10px; opacity: 0.5; }
-
-.gemini-ai-msg { justify-content: flex-start; }
-
-.gemini-av {
-  width: 28px;
-  height: 28px;
-  background: none;
-}
-
-.gemini-av svg { width: 24px; height: 24px; }
 
 .gemini-input {
   background: #F0F4F9;
@@ -1790,28 +1787,15 @@ hr.rule {
   border-radius: 24px;
 }
 
-.gemini-send-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.gemini-send-btn svg { width: 26px; height: 26px; display: block; }
-
 /* ── Claude specific ── */
 .claude-sidebar {
   background: #F3EDE3;
   border-right-color: #DDD5C4;
 }
 
-.claude-sidebar .sidebar-brand { color: #1a1a1a; }
-.claude-brand svg { }
-.claude-sidebar .sidebar-new-btn { background: #E8E0D2; color: #3a2f24; font-size: 0.76rem; justify-content: center; border-radius: 8px; }
-.claude-sidebar .sidebar-new-btn:hover { background: #DDD5C4; }
+.claude-sidebar .sidebar-new-btn { background: #E8E0D2; color: #3a2f24; text-align: center; border-radius: 8px; }
 .claude-sidebar .sidebar-hist-label { color: #9A8F83; }
 .claude-sidebar .sidebar-hist-item { color: #6B6050; }
-.claude-sidebar .sidebar-hist-item:hover { background: #E8E0D2; }
 .claude-sidebar .sidebar-hist-item--active { background: #DDD5C4; color: #2f261c; font-weight: 500; }
 
 .claude-main { background: #FAF9F7; }
@@ -1825,13 +1809,9 @@ hr.rule {
   flex-shrink: 0;
 }
 
-.claude-ai-msg .plat-bubble {
+.claude-bubble {
   background: #fff;
   border: 1px solid #EBE5DB;
-}
-
-.claude-av {
-  overflow: hidden;
 }
 
 .claude-input {
@@ -1839,15 +1819,6 @@ hr.rule {
   border: 1px solid #D8D1C7;
   box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
-
-.claude-send-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.claude-send-btn svg { width: 26px; height: 26px; display: block; }
 
 /* ── PII span in the input ── */
 .pii-span-live {
