@@ -17,14 +17,9 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: google-github-actions/release-please-action@v4
+      - uses: googleapis/release-please-action@v4
         id: release
         with:
-          release-type: node
-          changelog-path: CHANGELOG.md
-          # Commit message prefixes that appear in the changelog:
-          # feat:     → ### Features   (bumps minor version)
-          # fix:      → ### Bug Fixes  (bumps patch version)
-          # perf:     → ### Performance Improvements
-          # feat!: or BREAKING CHANGE: → ### ⚠ BREAKING CHANGES (bumps major)
-          # chore:, docs:, ci: → omitted from changelog (internal only)
+          # changelog-path and release-type are read from release-please-config.json
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
