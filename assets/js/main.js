@@ -120,16 +120,22 @@
       var platforms = bw.querySelectorAll('.bw-platform');
       var nextEl    = document.getElementById('plat-' + SCENES[nextIdx].platform);
 
-      // Fade in next
+      // Already the active platform — skip animation (handles initial scene 0)
+      if (nextEl.classList.contains('active')) {
+        resolve();
+        return;
+      }
+
+      // Prepare next platform (invisible, visible in DOM)
       nextEl.style.opacity = '0';
       nextEl.style.display = 'flex';
 
-      // Short rAF to let display:flex paint
+      // Short rAF to let display:flex paint before transitioning
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
-          // Fade out current
+          // Fade out current active (skip nextEl to avoid fighting itself)
           platforms.forEach(function (p) {
-            if (p.classList.contains('active')) {
+            if (p.classList.contains('active') && p !== nextEl) {
               p.style.transition = 'opacity 0.3s ease';
               p.style.opacity = '0';
               setTimeout(function () {
@@ -224,7 +230,7 @@
     // Position overlays
     positionVeilUI(scene.composeId);
 
-    await wait(600);
+    await wait(300);
     if (animToken !== token) return;
 
     // 5 ── Typewriter: build each segment
