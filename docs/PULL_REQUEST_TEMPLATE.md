@@ -23,7 +23,7 @@
 
 - [ ] My code follows the project's style and conventions
 - [ ] I have commented any non-obvious logic
-- [ ] I have updated `CHANGELOG.md` under `[Unreleased]`
+- [ ] My commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) format (`feat:`, `fix:`, `docs:`, etc.) so the changelog is updated automatically
 - [ ] Any new user-facing strings are appropriately escaped before DOM injection
 - [ ] I have not introduced `chrome.storage.sync` for sensitive data
 
