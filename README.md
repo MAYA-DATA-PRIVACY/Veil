@@ -2,10 +2,10 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)"
-    srcset="assets/brand/veil-wordmark-dark.png">
+    srcset="assets/icons/veil-wordmark-dark.png">
   <source media="(prefers-color-scheme: light)"
-    srcset="assets/brand/veil-wordmark-light.png">
-  <img src="assets/brand/veil-wordmark-dark.png"
+    srcset="assets/icons/veil-wordmark-light.png">
+  <img src="assets/icons/veil-wordmark-dark.png"
     alt="Veil" height="48">
 </picture>
 
