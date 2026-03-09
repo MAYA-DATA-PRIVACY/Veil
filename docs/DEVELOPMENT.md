@@ -6,20 +6,20 @@ Everything you need to run Veil locally, make changes, and test them end-to-end.
 
 ## Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Google Chrome (or Chromium) | 120+ |
-| Python | 3.10+ |
-| pip | latest |
-| Node.js (optional, for linting) | 18+ |
+| Tool                                  | Version |
+| ------------------------------------- | ------: |
+| Google Chrome (or Chromium)           |    120+ |
+| Python                                |   3.10+ |
+| pip                                   |  latest |
+| Node.js (optional, for linting/tests) |     18+ |
 
 ---
 
 ## 1. Clone the repo
 
 ```bash
-git clone https://github.com/your-org/veil-extension.git
-cd veil-extension
+git clone https://github.com/nishikantmandal007/Veil.git
+cd Veil
 ```
 
 ---
@@ -29,18 +29,19 @@ cd veil-extension
 The extension sends text to a local Python HTTP server for NER inference. No text ever leaves your machine.
 
 ```bash
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+# Create a venv and install all dependencies (including PyTorch CPU)
+npm run setup
+# This is equivalent to:
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install torch>=2.0.0 --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements.txt
 
-# Install dependencies
-pip install -r server/requirements.txt
-
-# (First run only) Download the model weights
-python server/download_model.py
+# (First run only) Download the GLiNER2 model weights
+npm run download-gliner2
 
 # Start the server — listens on http://127.0.0.1:8765
-python server/server.py
+npm run run-gliner2
 ```
 
 You should see:
@@ -51,6 +52,8 @@ You should see:
 
 Leave this terminal open while developing.
 
+> **Tip:** Use `npm run run-gliner2-lazy` to defer model loading until the first request — faster startup, brief delay on first scan.
+
 ---
 
 ## 3. Load the extension in Chrome (Developer mode)
@@ -58,7 +61,7 @@ Leave this terminal open while developing.
 1. Open Chrome and navigate to `chrome://extensions`.
 2. Enable **Developer mode** (toggle in the top-right corner).
 3. Click **Load unpacked**.
-4. Select the root of this repository (the folder containing `manifest.json`).
+4. Select the `extension/` subfolder inside the repo (the folder containing `manifest.json`).
 5. The Veil icon should appear in your toolbar. Pin it for easy access.
 
 > **Tip:** After editing any extension file, click the refresh icon on the `chrome://extensions` card (or press `Ctrl+R` on that page) to reload the extension. Content scripts on already-open tabs need the tab to be refreshed as well.
@@ -69,7 +72,7 @@ Leave this terminal open while developing.
 
 There is no bundler — all JS/CSS is loaded directly by Chrome. Your loop is:
 
-1. Edit a file (e.g., `content.js`).
+1. Edit a file (e.g., `extension/content.js`).
 2. Go to `chrome://extensions` → click the reload icon for Veil.
 3. Refresh the target tab (ChatGPT, Gemini, Claude, etc.).
 4. Inspect with **F12 → Console** (for page errors) or open the **Service Worker** devtools from `chrome://extensions` (for background.js errors).
@@ -84,45 +87,62 @@ There is no bundler — all JS/CSS is loaded directly by Chrome. Your loop is:
 
 ---
 
-## 6. Syntax checking JS files
+## 6. Linting & tests
 
 ```bash
-node --check content.js
-node --check background.js
-node --check popup.js
-```
+# ESLint
+npm run lint
 
-All three should exit silently (no output = no syntax errors).
+# JS unit tests (background utility functions)
+npm run test:unit
+
+# JS unit tests (content script utility functions)
+npm run test:unit:content
+
+# Python server unit tests
+npm run test:unit:python
+
+# Playwright e2e tests (requires Chrome)
+npm run test:e2e
+```
 
 ---
 
 ## 7. Project structure
 
 ```
-veil-extension/
-├── manifest.json          # MV3 extension manifest
-├── content.js             # Content script: DOM observation, PII render, UI
-├── background.js          # Service worker: detection, anonymisation, storage
-├── popup.html             # Extension popup markup
-├── popup.js               # Popup logic
-├── popup.css              # Popup styles
-├── styles.css             # In-page styles injected by content script
-├── server/                # Local GLiNER2 Python server
-│   ├── server.py
-│   ├── download_model.py
-│   └── requirements.txt
+Veil/
+├── extension/             # Chrome extension source — load THIS folder in chrome://extensions
+│   ├── manifest.json      # MV3 extension manifest
+│   ├── content.js         # Content script: DOM observation, PII render, UI
+│   ├── background.js      # Service worker: detection, anonymisation, storage
+│   ├── popup.html         # Extension popup markup
+│   ├── popup.js           # Popup logic
+│   ├── popup.css          # Popup styles
+│   └── styles.css         # In-page styles injected by content script
+├── server/
+│   ├── gliner2_server.py  # Local GLiNER2 Python HTTP server
+│   ├── native_host.py     # Chrome native messaging host
+│   ├── native-host/       # Install/uninstall scripts for native host
+│   └── autostart/         # Systemd autostart scripts (Linux)
+├── tests/
+│   ├── js/                # Node.js unit tests (no runner needed)
+│   └── server/            # pytest tests for gliner2_server utilities
 ├── docs/
+│   ├── DEVELOPMENT.md     # ← you are here
+│   ├── SECURITY.md
+│   ├── CONTRIBUTING.md
 │   └── architecture.drawio
+├── scripts/
+│   └── build_crx.sh       # Builds release ZIP
 ├── .github/
+│   ├── workflows/         # CI (ci.yml), release-please
 │   ├── ISSUE_TEMPLATE/
-│   │   ├── bug_report.md
-│   │   └── feature_request.md
 │   └── PULL_REQUEST_TEMPLATE.md
 ├── CHANGELOG.md
-├── CONTRIBUTING.md
-├── DEVELOPMENT.md         # ← you are here
-├── SECURITY.md
 ├── LICENSE
+├── package.json
+├── requirements.txt
 ├── .editorconfig
 └── .gitignore
 ```
@@ -131,24 +151,19 @@ veil-extension/
 
 ## 8. Environment variables
 
-Copy `.env.example` to `.env` (never commit `.env`):
+Veil does not require any environment variables to run locally. An optional `.env` file (never commit it) can be used for:
 
-```bash
-cp .env.example .env
-```
-
-| Variable | Description |
-|----------|-------------|
+| Variable                     | Description                             |
+| ---------------------------- | --------------------------------------- |
 | `MDP_ANONYMIZATION_ENDPOINT` | Optional external anonymisation API URL |
 
 ---
 
-## 9. Building a production `.crx`
+## 9. Building a release ZIP
 
 ```bash
-# Pack from chrome://extensions (Developer mode → Pack Extension)
-# or use the CLI tool:
-npx crx pack . -o dist/veil.crx
+npm run build:zip
+# Output: dist/privacy-shield-extension-<version>.zip
 ```
 
 Do **not** commit `.crx` or `.pem` files — they are gitignored.

@@ -18,6 +18,7 @@
     "format": "prettier --write 'extension/**/*.{js,json,css,html}'",
     "test": "node tests/js/test_background_utils.js",
     "test:unit": "node tests/js/test_background_utils.js",
+    "test:unit:content": "node tests/js/test_content_utils.js",
     "test:unit:python": ".venv/bin/python -m pytest tests/server/ -v",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",

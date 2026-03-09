@@ -51,8 +51,8 @@ function mergeOverlapping(detections) {
 
 function normalizeLabel(label) {
   // Mirrors GLINER_LABEL_DESCRIPTIONS keys
-  const KNOWN = new Set(['person','email','phone','address','ssn','credit_card','date_of_birth','location','organization']);
-  return KNOWN.has(label) ? label : label;
+  const KNOWN = new Set(['person', 'email', 'phone', 'address', 'ssn', 'credit_card', 'date_of_birth', 'location', 'organization']);
+  return KNOWN.has(label) ? label : 'unknown';
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -115,6 +115,20 @@ section('mergeOverlapping — sorts by start position');
   const result = mergeOverlapping(dets);
   assertEqual(result[0].start, 0, 'first result has lower start');
   assertEqual(result[1].start, 10, 'second result has higher start');
+}
+
+section('normalizeLabel — known label returns itself');
+{
+  assertEqual(normalizeLabel('person'), 'person', 'person stays person');
+  assertEqual(normalizeLabel('email'), 'email', 'email stays email');
+  assertEqual(normalizeLabel('ssn'), 'ssn', 'ssn stays ssn');
+}
+
+section('normalizeLabel — unknown label returns "unknown"');
+{
+  assertEqual(normalizeLabel('foobar'), 'unknown', 'unknown label → "unknown"');
+  assertEqual(normalizeLabel(''), 'unknown', 'empty string → "unknown"');
+  assertEqual(normalizeLabel('ip_address'), 'unknown', 'non-standard label → "unknown"');
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

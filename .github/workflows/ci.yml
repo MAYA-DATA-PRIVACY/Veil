@@ -7,21 +7,35 @@ on:
     branches: [main, dev]
 
 jobs:
-  test-js:
+  lint-js:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 18
       - run: npm ci
-      - run: npm run test:unit
+      - name: Lint JS
+        run: npm run lint
+
+  test-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: npm ci
+      - name: Run background utility tests
+        run: npm run test:unit
+      - name: Run content utility tests
+        run: npm run test:unit:content
 
   test-python:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
       - run: pip install pytest

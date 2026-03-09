@@ -160,7 +160,7 @@ function normalizeCustomPatterns(storedPatterns, defaults) {
   const mergedIds = new Set(mergedDefaults.map((entry) => String(entry?.id || '').trim()).filter(Boolean));
   const customOnly = storedPatterns.filter((entry) => {
     const id = String(entry?.id || '').trim();
-    return !id || !mergedIds.has(id);
+    return id && !mergedIds.has(id);
   });
 
   return [...mergedDefaults, ...extras, ...customOnly];
