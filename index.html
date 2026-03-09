@@ -56,83 +56,253 @@ description: Real-time PII detection and redaction for AI chat interfaces. Power
 </section>
 
 <!-- ══════════════════════
-     ANIMATED CHAT DEMO
+     BROWSER DEMO
 ══════════════════════ -->
-<div class="chat-demo-section">
-  <div class="chat-demo-outer">
+<div class="bw-section">
+  <div class="bw-outer">
 
-    <div class="chat-demo" id="chat-demo" data-platform="chatgpt"
-         aria-label="Animated demo: Veil detecting and redacting PII in a chat interface">
+    <div class="bw" id="browser-demo" data-platform="chatgpt"
+         aria-label="Live demo: Veil detecting and auto-redacting PII inside ChatGPT, Gemini, and Claude">
 
-      <!-- Browser chrome + platform tabs -->
-      <div class="chat-demo-titlebar">
-        <div class="chat-demo-dots" aria-hidden="true">
-          <span class="chat-demo-dot"></span>
-          <span class="chat-demo-dot"></span>
-          <span class="chat-demo-dot"></span>
+      <!-- ── OS title bar ── -->
+      <div class="bw-titlebar">
+        <div class="bw-dots" aria-hidden="true">
+          <span class="bw-dot bw-dot-r"></span>
+          <span class="bw-dot bw-dot-y"></span>
+          <span class="bw-dot bw-dot-g"></span>
         </div>
+        <div class="bw-tab">
+          <span class="bw-tab-fav" id="bw-fav" aria-hidden="true">
+            <!-- favicon injected by JS -->
+          </span>
+          <span class="bw-tab-title" id="bw-tab-title">ChatGPT</span>
+        </div>
+        <div class="bw-titlebar-spacer" aria-hidden="true"></div>
+      </div>
 
-        <div class="platform-tabs" role="tablist" aria-label="Platform">
-          <button class="platform-tab active" data-platform="chatgpt"
-                  role="tab" aria-selected="true">
-            <span class="platform-tab-dot" aria-hidden="true"></span>
-            ChatGPT
+      <!-- ── URL bar ── -->
+      <div class="bw-urlbar-row" aria-hidden="true">
+        <div class="bw-nav">
+          <button class="bw-nav-btn" tabindex="-1">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2L4 6l4 4" stroke-linecap="round"/></svg>
           </button>
-          <button class="platform-tab" data-platform="gemini"
-                  role="tab" aria-selected="false">
-            <span class="platform-tab-dot" aria-hidden="true"></span>
-            Gemini
+          <button class="bw-nav-btn" tabindex="-1">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 2l4 4-4 4" stroke-linecap="round"/></svg>
           </button>
-          <button class="platform-tab" data-platform="claude"
-                  role="tab" aria-selected="false">
-            <span class="platform-tab-dot" aria-hidden="true"></span>
-            Claude
-          </button>
+        </div>
+        <div class="bw-urlbar">
+          <svg class="bw-lock" viewBox="0 0 12 14" fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="2" y="6" width="8" height="7" rx="1.5"/>
+            <path d="M4 6V4a2 2 0 014 0v2" stroke-linecap="round"/>
+          </svg>
+          <span class="bw-url" id="bw-url">chatgpt.com</span>
+        </div>
+        <div class="bw-toolbar-right">
+          <!-- Veil extension icon with detection badge -->
+          <div class="bw-ext-veil" id="bw-ext" title="Veil — active">
+            <img src="{{ site.baseurl }}/assets/icons/veil-icon.svg"
+                 alt="Veil" width="16" height="16" />
+            <span class="bw-ext-badge" id="bw-ext-badge" aria-hidden="true"></span>
+          </div>
         </div>
       </div>
 
-      <!-- Chat body -->
-      <div class="chat-body">
+      <!-- ── Browser viewport ── -->
+      <div class="bw-viewport">
 
-        <!-- Previous AI message -->
-        <div class="chat-history">
-          <div class="chat-msg">
-            <div class="chat-avatar ai" id="demo-avatar" aria-hidden="true">GPT</div>
-            <div class="chat-bubble" id="demo-ai-msg">
-              Of course — what changes need to be made to the contract?
-            </div>
-          </div>
-        </div>
-
-        <!-- User compose area -->
-        <div class="chat-compose">
-
-          <!-- Veil status bar — hidden until PII detected -->
-          <div class="veil-status-bar" id="veil-status" aria-live="polite">
-            <svg class="veil-status-icon" viewBox="0 0 128 128" fill="none"
-                 xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <rect width="128" height="128" rx="20" fill="currentColor" opacity="0.15"/>
-              <rect x="20" y="49" width="88" height="12" rx="3" fill="currentColor"/>
-            </svg>
-            <span class="veil-status-count" id="veil-count">0 items detected</span>
-            <button class="veil-redact-btn" id="veil-redact-btn" tabindex="-1">Redact all</button>
-          </div>
-
-          <!-- Text input simulation -->
-          <div class="chat-input-field">
-            <p class="chat-input-text" id="chat-input-text" aria-label="User is typing"></p>
-            <span class="chat-cursor" aria-hidden="true"></span>
-            <button class="chat-send-btn" tabindex="-1" aria-label="Send" aria-hidden="true">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-                <path d="M2 8h12M9 4l5 4-5 4" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- ════ ChatGPT ════ -->
+        <div class="bw-platform active" id="plat-chatgpt">
+          <aside class="plat-sidebar chatgpt-sidebar">
+            <div class="sidebar-brand">
+              <!-- Simplified OpenAI-inspired icon -->
+              <svg class="sidebar-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10.5" stroke="#000" stroke-width="1.4"/>
+                <path d="M7.5 15.5c1.2 1.9 3.1 3 4.5 3s3.3-1.1 4.5-3" stroke="#000" stroke-width="1.4" stroke-linecap="round"/>
+                <path d="M8.5 8.5C9.2 7.5 10.4 7 12 7s2.8.5 3.5 1.5M12 7v3.5" stroke="#000" stroke-width="1.4" stroke-linecap="round"/>
               </svg>
+              <span>ChatGPT</span>
+            </div>
+            <button class="sidebar-new-btn" tabindex="-1">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 2v10M2 7h10" stroke-linecap="round"/></svg>
+              New chat
             </button>
-          </div>
-
+            <div class="sidebar-history">
+              <p class="sidebar-hist-label">Today</p>
+              <div class="sidebar-hist-item sidebar-hist-item--active">Contract review</div>
+              <div class="sidebar-hist-item">Marketing copy</div>
+              <div class="sidebar-hist-item">Code review</div>
+            </div>
+          </aside>
+          <main class="plat-main chatgpt-main">
+            <div class="chatgpt-model-row">
+              <span class="chatgpt-model-picker">ChatGPT 4o
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3.5l3 3 3-3" stroke-linecap="round"/></svg>
+              </span>
+            </div>
+            <div class="plat-messages" id="chatgpt-msgs">
+              <div class="plat-msg ai-msg">
+                <div class="plat-avatar chatgpt-av">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" fill="#000"/>
+                    <path d="M7.5 15.5c1.2 1.8 2.9 2.8 4.5 2.8s3.3-1 4.5-2.8" stroke="rgba(255,255,255,0.85)" stroke-width="1.3" stroke-linecap="round"/>
+                    <path d="M9 8.5C9.5 7.5 10.7 7 12 7s2.5.5 3 1.5" stroke="rgba(255,255,255,0.85)" stroke-width="1.3" stroke-linecap="round"/>
+                  </svg>
+                </div>
+                <div class="plat-bubble" id="chatgpt-ai">Of course — what changes need to be made to the contract?</div>
+              </div>
+            </div>
+            <div class="plat-compose" id="chatgpt-compose">
+              <!-- Veil overlay injected here -->
+              <div class="plat-input chatgpt-input">
+                <div class="plat-typing" id="chatgpt-typing" aria-live="polite" aria-label="Message"></div>
+                <span class="plat-cursor" aria-hidden="true"></span>
+                <button class="chatgpt-send-btn" tabindex="-1" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8h10M9 5l4 3-4 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
+            </div>
+          </main>
         </div>
-      </div>
 
-    </div>
+        <!-- ════ Gemini ════ -->
+        <div class="bw-platform" id="plat-gemini">
+          <aside class="plat-sidebar gemini-sidebar">
+            <div class="sidebar-brand gemini-brand">
+              <!-- Gemini 4-pointed star approximation -->
+              <svg class="sidebar-logo" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 2C12 7.52 12 12 12 12C12 12 16.92 12 22 12C16.48 12 12 12 12 12C12 12 12 16.92 12 22C12 16.48 12 12 12 12C12 12 7.08 12 2 12C7.52 12 12 12 12 12C12 12 12 7.08 12 2Z"
+                      fill="url(#g-grad)"/>
+                <defs>
+                  <linearGradient id="g-grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%"   stop-color="#4285F4"/>
+                    <stop offset="33%"  stop-color="#0F9D58"/>
+                    <stop offset="66%"  stop-color="#F4B400"/>
+                    <stop offset="100%" stop-color="#DB4437"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span>Gemini</span>
+            </div>
+            <button class="sidebar-new-btn gemini-new-btn" tabindex="-1">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 2v10M2 7h10" stroke-linecap="round"/></svg>
+              New chat
+            </button>
+            <div class="sidebar-history">
+              <p class="sidebar-hist-label">Recent</p>
+              <div class="sidebar-hist-item sidebar-hist-item--active">Patient records</div>
+              <div class="sidebar-hist-item">Code review</div>
+            </div>
+          </aside>
+          <main class="plat-main gemini-main">
+            <div class="gemini-model-row">
+              <span class="gemini-model-picker">
+                <svg viewBox="0 0 14 14" aria-hidden="true">
+                  <path d="M7 1C7 4.52 7 7 7 7C7 7 9.96 7 13 7C9.48 7 7 7 7 7C7 7 7 9.96 7 13C7 9.48 7 7 7 7C7 7 4.04 7 1 7C4.52 7 7 7 7 7C7 7 7 4.04 7 1Z"
+                        fill="url(#gm)"/>
+                  <defs><linearGradient id="gm" x1="1" y1="1" x2="13" y2="13"><stop stop-color="#4285F4"/><stop offset="1" stop-color="#DB4437"/></linearGradient></defs>
+                </svg>
+                Gemini 1.5 Pro
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3.5l3 3 3-3" stroke-linecap="round"/></svg>
+              </span>
+            </div>
+            <div class="plat-messages" id="gemini-msgs">
+              <div class="plat-msg ai-msg gemini-ai-msg">
+                <div class="plat-avatar gemini-av">
+                  <svg viewBox="0 0 14 14" aria-hidden="true">
+                    <path d="M7 1C7 4.52 7 7 7 7C7 7 9.96 7 13 7C9.48 7 7 7 7 7C7 7 9.96 7 7 13C7 9.48 7 7 7 7C7 7 4.04 7 1 7C4.52 7 7 7 7 7C7 7 4.04 7 7 1Z"
+                          fill="url(#gav)"/>
+                    <defs><linearGradient id="gav" x1="1" y1="1" x2="13" y2="13"><stop stop-color="#4285F4"/><stop offset="1" stop-color="#DB4437"/></linearGradient></defs>
+                  </svg>
+                </div>
+                <div class="plat-bubble" id="gemini-ai">I can help with that summary. What format works best for you?</div>
+              </div>
+            </div>
+            <div class="plat-compose" id="gemini-compose">
+              <div class="plat-input gemini-input">
+                <div class="plat-typing" id="gemini-typing" aria-live="polite" aria-label="Message"></div>
+                <span class="plat-cursor" aria-hidden="true"></span>
+                <button class="gemini-send-btn" tabindex="-1" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="7" fill="#4285F4"/>
+                    <path d="M5 8h6M9 5.5l3 2.5-3 2.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </main>
+        </div>
+
+        <!-- ════ Claude ════ -->
+        <div class="bw-platform" id="plat-claude">
+          <aside class="plat-sidebar claude-sidebar">
+            <div class="sidebar-brand claude-brand">
+              <!-- Anthropic-inspired abstract mark -->
+              <svg class="sidebar-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3L20 20H4L12 3Z" fill="#D97757" opacity="0.9"/>
+                <path d="M12 8L17.5 20H6.5L12 8Z" fill="#FAF9F7"/>
+                <path d="M12 13L14.5 20H9.5L12 13Z" fill="#D97757" opacity="0.6"/>
+              </svg>
+              <span>Claude</span>
+            </div>
+            <button class="sidebar-new-btn claude-new-btn" tabindex="-1">New conversation</button>
+            <div class="sidebar-history">
+              <p class="sidebar-hist-label">Recents</p>
+              <div class="sidebar-hist-item sidebar-hist-item--active">Contract drafting</div>
+              <div class="sidebar-hist-item">Medical notes</div>
+              <div class="sidebar-hist-item">Budget analysis</div>
+            </div>
+          </aside>
+          <main class="plat-main claude-main">
+            <div class="claude-conv-title">Contract Drafting</div>
+            <div class="plat-messages" id="claude-msgs">
+              <div class="plat-msg ai-msg claude-ai-msg">
+                <div class="plat-avatar claude-av">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" fill="#D97757"/>
+                    <path d="M12 6L16.5 18H7.5L12 6Z" fill="rgba(255,255,255,0.9)"/>
+                    <path d="M12 11L14 18H10L12 11Z" fill="#D97757"/>
+                  </svg>
+                </div>
+                <div class="plat-bubble" id="claude-ai">Happy to draft that. Should I keep the tone formal, matching your previous thread?</div>
+              </div>
+            </div>
+            <div class="plat-compose" id="claude-compose">
+              <div class="plat-input claude-input">
+                <div class="plat-typing" id="claude-typing" aria-live="polite" aria-label="Message"></div>
+                <span class="plat-cursor" aria-hidden="true"></span>
+                <button class="claude-send-btn" tabindex="-1" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="7" fill="#D97757"/>
+                    <path d="M5 8h6M9 5.5l3 2.5-3 2.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </main>
+        </div>
+
+        <!-- ── Veil UI overlays (shared, repositioned per platform) ── -->
+        <div class="veil-scanning-pill" id="veil-scanning" aria-live="polite" aria-atomic="true">
+          <span class="scan-dot"></span>
+          <span class="scan-dot"></span>
+          <span class="scan-dot"></span>
+          <span class="scan-label">Scanning…</span>
+        </div>
+
+        <div class="veil-action-bar" id="veil-action-bar">
+          <div class="vab-left">
+            <img src="{{ site.baseurl }}/assets/icons/veil-icon.svg"
+                 alt="" class="vab-icon" width="14" height="14" aria-hidden="true"/>
+            <span class="vab-count" id="vab-count">3 items detected</span>
+          </div>
+          <div class="vab-right">
+            <span class="vab-timer" id="vab-timer"></span>
+          </div>
+        </div>
+
+      </div><!-- /bw-viewport -->
+
+    </div><!-- /browser-demo -->
   </div>
 </div>
 
