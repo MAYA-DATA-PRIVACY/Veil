@@ -179,6 +179,16 @@
   animation-delay: var(--stagger, 0ms);
 }
 
+.ps-pii-underline[data-tier="high"]   { text-decoration-color: #dc2626; text-decoration-thickness: 2px; }
+.ps-pii-underline[data-tier="medium"] { text-decoration-color: #d97706; text-decoration-thickness: 1.5px; }
+.ps-pii-underline[data-tier="low"]    { text-decoration-color: #ca8a04; text-decoration-thickness: 1px; text-decoration-style: dotted; }
+
+@media (prefers-color-scheme: dark) {
+  .ps-pii-underline[data-tier="high"]   { text-decoration-color: #fca5a5; }
+  .ps-pii-underline[data-tier="medium"] { text-decoration-color: #fcd34d; }
+  .ps-pii-underline[data-tier="low"]    { text-decoration-color: #fde68a; }
+}
+
 .ps-pii-underline:hover {
   background: color-mix(in srgb, var(--detection-color, #b45309) 10%, #fdf6ed);
 }
@@ -187,6 +197,7 @@
   from { opacity: 0; transform: translateY(3px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
 
 /* ─── Redacted span ─── */
 .ps-redaction {
@@ -263,12 +274,13 @@
 .ps-overlay-hl-redacted {
   /* Fully transparent fill — works on both light and dark page backgrounds */
   background: color-mix(in srgb, var(--hl-color, #b45309) 14%, transparent);
-  outline: 1.5px solid color-mix(in srgb, var(--hl-color, #b45309) 45%, transparent);
-  transition: background 180ms ease, outline-color 180ms ease;
+  /* inset box-shadow keeps the ring inside the element boundary — no bleed above/below the text line */
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--hl-color, #b45309) 45%, transparent);
+  transition: background 180ms ease, box-shadow 180ms ease;
 }
 .ps-overlay-hl-redacted:hover {
   background: color-mix(in srgb, var(--hl-color, #b45309) 22%, transparent);
-  outline-color: color-mix(in srgb, var(--hl-color, #b45309) 65%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--hl-color, #b45309) 65%, transparent);
 }
 
 .ps-overlay-hl-underline {
@@ -482,6 +494,8 @@
   flex-wrap: wrap;
   gap: 6px;
   padding: 7px;
+  max-height: 240px;
+  overflow-y: auto;
   border-radius: 12px;
   background: linear-gradient(180deg, #fffefb 0%, #faf6ee 100%);
   border: 1px solid #e7dece;

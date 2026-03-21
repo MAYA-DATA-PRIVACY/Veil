@@ -27,17 +27,32 @@ FALLBACK_MODELS = [
 ]
 DEFAULT_THRESHOLD = 0.42
 DEFAULT_MAX_CHARS = 9000
-DEFAULT_LABELS = [
-    "person",
-    "email",
-    "phone",
-    "address",
-    "ssn",
-    "credit_card",
-    "date_of_birth",
-    "location",
-    "organization",
-]
+DEFAULT_LABELS = {
+    "person":        "full name, first name, last name, or nickname of a real human individual",
+    "email":         "electronic mail address containing @ and a domain like user@example.com",
+    "phone":         "phone number, mobile number, or contact number including country codes",
+    "address":       "street address, home or mailing address with street number",
+    "ssn":           "social security number or government-issued ID in NNN-NN-NNNN format",
+    "credit_card":   "credit or debit card number with 13 to 16 digits",
+    "date_of_birth": "date of birth, birthday, or birth date of a specific person",
+    "location":      "city, country, state, region, or named geographic place",
+    "organization":  "company name, institution, government agency, or business entity",
+}
+
+DEFAULT_THRESHOLDS_BY_TYPE = {
+    "ssn": 0.35, "credit_card": 0.35, "email": 0.40, "phone": 0.42,
+    "date_of_birth": 0.45, "address": 0.48, "organization": 0.48,
+    "person": 0.50, "location": 0.50,
+}
+
+PII_STRUCTURE_SCHEMA = {
+    "persons":   "names of people — first names, last names, full names",
+    "emails":    "email addresses in format user@domain.com",
+    "phones":    "phone numbers or mobile numbers",
+    "ids":       "identity numbers such as SSN, passport number, national ID",
+    "financial": "credit card numbers or bank account details",
+    "locations": "addresses, cities, countries, states, geographic places",
+}
 
 # Server-side chunking: GLiNER2's context window is ~512 tokens; 480 chars is a
 # safe character-level proxy. Chunks overlap so entities near boundaries aren't missed.
@@ -157,7 +172,7 @@ def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> 
         method="POST",
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
+            "X-Api-key": token,
         },
     )
 
@@ -325,6 +340,30 @@ def make_chunks(text: str) -> List[Tuple[str, int]]:
         if end >= len(text):
             break
         pos += CHUNK_SIZE - CHUNK_OVERLAP
+    return result
+
+
+def score_to_tier(score: float) -> str:
+    if score >= 0.80:
+        return "high"
+    if score >= 0.60:
+        return "medium"
+    return "low"
+
+
+def apply_per_entity_thresholds(
+    detections: List[Dict[str, Any]],
+    global_threshold: float,
+    per_entity: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
+    if not per_entity:
+        per_entity = {}
+    result = []
+    for det in detections:
+        label = str(det.get("label", "")).strip().lower()
+        threshold = per_entity.get(label, DEFAULT_THRESHOLDS_BY_TYPE.get(label, global_threshold))
+        if det.get("score", 0.0) >= threshold:
+            result.append(det)
     return result
 
 
@@ -540,7 +579,7 @@ class GLiNERService:
                 if str(k).strip()
             }
             if not safe_labels:
-                safe_labels = {lbl: lbl for lbl in DEFAULT_LABELS}
+                safe_labels = dict(DEFAULT_LABELS)
         else:
             cleaned = [str(lbl).strip().lower() for lbl in (labels or []) if str(lbl).strip()]
             safe_labels = cleaned if cleaned else list(DEFAULT_LABELS)
@@ -587,7 +626,94 @@ class GLiNERService:
                             self._predict_chunk(chunk_text, safe_labels, threshold, text, offset)
                         )
 
-        return deduplicate_detections(detections)
+        result = deduplicate_detections(detections)
+        for det in result:
+            det["tier"] = score_to_tier(det.get("score", 0.0))
+        return result
+
+    def classify(self, text: str) -> Dict[str, Any]:
+        """Classify text sensitivity using GLiNER2 or detection fallback."""
+        self.load_model()
+        classify_labels = ["highly sensitive PII present", "moderate PII", "low risk", "no PII"]
+        sensitivity_map = {
+            "highly sensitive pii present": "high",
+            "moderate pii": "medium",
+            "low risk": "low",
+            "no pii": "none",
+        }
+
+        if hasattr(self.model, "classify"):
+            with self.model_lock:
+                try:
+                    raw = self.model.classify(text, classify_labels, include_confidence=True)
+                    if isinstance(raw, dict):
+                        label = str(raw.get("label", "")).lower()
+                        score = float(raw.get("score", raw.get("confidence", 0.0)))
+                        return {"sensitivity": sensitivity_map.get(label, "none"), "score": score, "label": label}
+                    if isinstance(raw, list) and raw:
+                        best = max(raw, key=lambda x: float(x.get("score", 0.0)) if isinstance(x, dict) else 0.0)
+                        label = str(best.get("label", "")).lower()
+                        score = float(best.get("score", 0.0))
+                        return {"sensitivity": sensitivity_map.get(label, "none"), "score": score, "label": label}
+                except Exception:
+                    pass
+
+        # Fallback: detect and infer sensitivity
+        try:
+            detections = self.detect(text, DEFAULT_LABELS, 0.30)
+            if not detections:
+                return {"sensitivity": "none", "score": 0.0, "label": "no pii"}
+            max_score = max(d.get("score", 0.0) for d in detections)
+            high_risk = {"ssn", "credit_card"}
+            has_high_risk = any(d.get("label", "").lower() in high_risk for d in detections)
+            if has_high_risk or max_score >= 0.80:
+                sensitivity = "high"
+            elif max_score >= 0.60:
+                sensitivity = "medium"
+            elif max_score >= 0.40:
+                sensitivity = "low"
+            else:
+                sensitivity = "none"
+            return {"sensitivity": sensitivity, "score": max_score, "label": f"{len(detections)} entities detected"}
+        except Exception as exc:
+            return {"sensitivity": "none", "score": 0.0, "label": "error", "error": str(exc)}
+
+    def structure(self, text: str, schema: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Extract structured PII into schema categories."""
+        self.load_model()
+        if schema is None:
+            schema = PII_STRUCTURE_SCHEMA
+
+        if hasattr(self.model, "structure"):
+            with self.model_lock:
+                try:
+                    raw = self.model.structure(text, schema)
+                    if isinstance(raw, dict):
+                        return raw
+                except Exception:
+                    pass
+
+        # Fallback: detect and bucket by entity type
+        label_to_schema_key = {
+            "person": "persons", "email": "emails", "phone": "phones",
+            "ssn": "ids", "credit_card": "financial", "address": "locations",
+            "location": "locations", "date_of_birth": "ids", "organization": "persons",
+        }
+        try:
+            detections = self.detect(text, DEFAULT_LABELS, 0.35)
+            result: Dict[str, List[str]] = {key: [] for key in schema}
+            seen: Dict[str, set] = {key: set() for key in schema}
+            for det in detections:
+                lbl = str(det.get("label", "")).lower()
+                bucket = label_to_schema_key.get(lbl)
+                if bucket and bucket in result:
+                    value = str(det.get("text", "")).strip()
+                    if value and value not in seen[bucket]:
+                        seen[bucket].add(value)
+                        result[bucket].append(value)
+            return result
+        except Exception as exc:
+            return {"error": str(exc)}
 
 
 def make_handler(service: GLiNERService, max_chars: int):
@@ -646,38 +772,79 @@ def make_handler(service: GLiNERService, max_chars: int):
                     text = str(payload.get("text", ""))
                     labels = payload.get("labels", DEFAULT_LABELS)
                     threshold = payload.get("threshold", service.default_threshold)
+                    per_entity_thresholds = payload.get("thresholds", None)
+                    fast_mode = bool(payload.get("fast_mode", False))
 
                     try:
                         threshold = float(threshold)
                     except (TypeError, ValueError):
                         threshold = service.default_threshold
 
+                    if fast_mode and len(text.strip()) < 100:
+                        self._write_json({"ok": True, "detections": [], "fast_mode_skip": True})
+                        return
+
                     if len(text) > max_chars:
                         text = text[:max_chars]
 
-                    detections = service.detect(text, labels, threshold)
+                    # Use the lowest applicable threshold for the model pass so
+                    # per-entity filtering can select the right detections afterwards.
+                    effective_min = threshold
+                    if isinstance(per_entity_thresholds, dict) and per_entity_thresholds:
+                        try:
+                            effective_min = min(
+                                effective_min,
+                                min(float(v) for v in per_entity_thresholds.values() if v is not None),
+                            )
+                        except (TypeError, ValueError):
+                            pass
+
+                    detections = service.detect(text, labels, effective_min)
+                    if per_entity_thresholds:
+                        detections = apply_per_entity_thresholds(detections, threshold, per_entity_thresholds)
                     self._write_json({"ok": True, "detections": detections}, status_code=200)
+                    return
+
+                if path == "/classify":
+                    text = str(payload.get("text", ""))
+                    if not text.strip():
+                        self._write_json({"ok": True, "sensitivity": "none", "score": 0.0, "label": "empty"})
+                        return
+                    result = service.classify(text)
+                    self._write_json({"ok": True, **result})
+                    return
+
+                if path == "/structure":
+                    text = str(payload.get("text", ""))
+                    schema = payload.get("schema", None)
+                    if not text.strip():
+                        self._write_json({"ok": True, "structure": {}})
+                        return
+                    result = service.structure(text, schema if isinstance(schema, dict) else None)
+                    self._write_json({"ok": True, "structure": result})
                     return
 
                 if path == "/anonymize":
                     request_id = uuid.uuid4().hex[:10]
                     entries = payload
-                    jwt_token = ""
+                    api_key = ""
                     if isinstance(payload, dict):
                         entries = payload.get("entries", payload.get("payload", []))
-                        jwt_token = str(payload.get("jwtToken", "")).strip()
-                    if not jwt_token:
-                        jwt_token = extract_bearer_token(self.headers.get("Authorization", ""))
+                        api_key = str(payload.get("jwtToken", "")).strip()
+                    if not api_key:
+                        api_key = str(self.headers.get("X-Api-key", "")).strip()
+                    if not api_key:
+                        api_key = extract_bearer_token(self.headers.get("Authorization", ""))
 
                     input_count = len(entries) if isinstance(entries, list) else None
                     log_anonymization(
                         "route.inbound",
                         request_id,
-                        has_inline_jwt=bool(jwt_token),
+                        has_inline_jwt=bool(api_key),
                         entries_count=input_count,
                     )
 
-                    result = proxy_anonymization(entries, jwt_token, request_id)
+                    result = proxy_anonymization(entries, api_key, request_id)
                     self._write_json({"ok": True, "data": result}, status_code=200)
                     return
 
@@ -742,7 +909,7 @@ def main() -> None:
     handler = make_handler(service, args.max_chars)
     server = ThreadingHTTPServer((args.host, args.port), handler)
     print(f"GLiNER2 local server listening on http://{args.host}:{args.port}")
-    print("Endpoints: GET /health, POST /detect, POST /anonymize")
+    print("Endpoints: GET /health, POST /detect, POST /anonymize, POST /classify, POST /structure")
     server.serve_forever()
 
 

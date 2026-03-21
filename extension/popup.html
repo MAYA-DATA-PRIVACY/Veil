@@ -102,11 +102,12 @@
           <p>AI privacy guard — local-first PII protection</p>
         </div>
       </div>
-      <span class="version-badge">v1.0</span>
+      <span class="version-badge" id="versionBadge">v1.1</span>
+      <span class="beta-badge">Beta</span>
     </header>
 
     <section class="card status-card">
-      <div class="status-row">
+      <div class="status-row" role="status" aria-live="polite">
         <span class="status-dot" id="statusDot"></span>
         <span class="status-text" id="statusText">Checking...</span>
       </div>
@@ -114,13 +115,21 @@
       <div class="stats">
         <div class="stat">
           <div id="detectionCount" class="stat-value">0</div>
-          <div class="stat-label">Detected</div>
+          <div class="stat-label" title="PII entities detected on the current page this session">Detected</div>
         </div>
         <div class="stat">
           <div id="redactionCount" class="stat-value">0</div>
-          <div class="stat-label">Redacted</div>
+          <div class="stat-label" title="PII entities redacted this session">Redacted</div>
         </div>
       </div>
+    </section>
+
+    <section class="card" id="redactionKeyCard" hidden>
+      <div class="section-title-row">
+        <h2>Redaction Key</h2>
+        <span class="hint" style="margin-left:auto">tokens → originals</span>
+      </div>
+      <div id="redactionKeyList" class="redaction-key-list"></div>
     </section>
 
     <section class="card">
@@ -145,113 +154,110 @@
         <pre class="cmd-box"><code id="nativeHostInstallCommand"></code></pre>
         <p class="hint install-note">After successful install and extension reload, this section hides automatically.</p>
       </div>
-      <div class="server-carousel">
-        <div class="server-carousel-nav">
-          <button id="serverToolsPrevButton" type="button" class="secondary compact nav-button" aria-label="Previous panel">&#8249;</button>
-          <button type="button" class="tool-tab is-active" data-panel-index="0">HF Token</button>
-          <button type="button" class="tool-tab" data-panel-index="1">API Key</button>
-          <button type="button" class="tool-tab" data-panel-index="2">Diagnostics</button>
-          <button id="serverToolsNextButton" type="button" class="secondary compact nav-button" aria-label="Next panel">&#8250;</button>
-        </div>
-        <div class="server-carousel-viewport">
-          <div class="server-carousel-track" id="serverToolsTrack">
+      <div class="tool-tabs-bar">
+        <button type="button" class="tool-tab is-active" data-panel="hfToken">HF Token</button>
+        <button type="button" class="tool-tab" data-panel="apiKey">API Key</button>
+        <button type="button" class="tool-tab" data-panel="diagnostics">Diagnostics</button>
+      </div>
 
-            <!-- Panel 0: HF Token -->
-            <section class="server-tool-panel token-tools">
-              <p class="panel-title">Hugging Face Token</p>
-              <p class="hint" style="margin-top:4px">Used only for model download. Stored locally.</p>
-              <label class="field field-tight" for="hfTokenInput">
-                <div class="secret-input-row">
-                  <input id="hfTokenInput" type="password" autocomplete="off" spellcheck="false" placeholder="hf_xxx...">
-                  <button type="button" class="ghost compact eye-btn" id="toggleHfTokenVisibility" aria-label="Show/hide token" title="Show/hide">
-                    <svg class="eye-icon" viewBox="0 0 20 20" fill="none"><path d="M2.5 10C4.5 6.5 7 5 10 5s5.5 1.5 7.5 5c-2 3.5-4.5 5-7.5 5s-5.5-1.5-7.5-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
-                  </button>
-                </div>
-              </label>
-              <div class="button-row">
-                <button id="saveHfTokenButton" type="button" class="ghost">Save Token</button>
-                <button id="clearHfTokenButton" type="button" class="secondary">Clear</button>
-                <span class="saved-badge" id="hfTokenSavedBadge" hidden>&#10003; Saved</span>
-              </div>
-            </section>
-
-            <!-- Panel 1: API Key -->
-            <section class="server-tool-panel token-tools">
-              <p class="panel-title">Anonymization API Key</p>
-              <p class="hint" style="margin-top:4px">Used for anonymization mode. Stored locally in this browser profile only &mdash; never transmitted except to your local proxy.</p>
-
-              <!-- Saved state (shown when key exists) -->
-              <div id="apiKeySavedState" hidden>
-                <div class="api-key-saved-card">
-                  <div class="api-key-saved-info">
-                    <div class="api-key-saved-icon" aria-hidden="true">&#128273;</div>
-                    <div>
-                      <div class="api-key-saved-title">API Key Saved</div>
-                      <div class="api-key-saved-preview" id="apiKeyPreview">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</div>
-                    </div>
-                  </div>
-                  <div class="api-key-saved-actions">
-                    <button type="button" class="ghost compact" id="revealApiKeyButton">Show</button>
-                    <button type="button" class="secondary compact" id="removeApiKeyButton">Remove</button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Input state (shown when no key) -->
-              <div id="apiKeyInputState">
-                <label class="field field-tight" for="veilApiKeyInput">
-                  <div class="secret-input-row">
-                    <input id="veilApiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key...">
-                    <button type="button" class="ghost compact eye-btn" id="toggleApiKeyVisibility" aria-label="Show/hide key" title="Show/hide">
-                      <svg class="eye-icon" viewBox="0 0 20 20" fill="none"><path d="M2.5 10C4.5 6.5 7 5 10 5s5.5 1.5 7.5 5c-2 3.5-4.5 5-7.5 5s-5.5-1.5-7.5-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
-                    </button>
-                  </div>
-                </label>
-                <div class="button-row">
-                  <button id="saveApiKeyButton" type="button" class="ghost">Save API Key</button>
-                </div>
-              </div>
-
-              <p class="hint install-note" style="margin-top:6px">Only used when Redaction Mode is set to Anonymize.</p>
-            </section>
-
-            <!-- Panel 2: Diagnostics -->
-            <section class="server-tool-panel">
-              <p class="panel-title">Diagnostics</p>
-
-              <label class="field field-tight" style="margin-bottom:8px">
-                <span style="font-size:11px;font-weight:600;color:var(--ink)">GLiNER2 Model</span>
-                <select id="modelSelect">
-                  <option value="fastino/gliner2-large-v1">gliner2-large-v1 — 340 M &nbsp;(best quality)</option>
-                  <option value="fastino/gliner2-base-v1">gliner2-base-v1 — 205 M &nbsp;(faster, less RAM)</option>
-                  <option value="fastino/gliner2-multi-v1">gliner2-multi-v1 — multilingual</option>
-                </select>
-                <p class="hint" style="margin:3px 0 0">Takes effect on next server start. Downloads automatically.</p>
-              </label>
-
-              <div class="diag-row">
-                <span class="diag-key">Active Model</span>
-                <code class="diag-value" id="modelText">—</code>
-              </div>
-              <div class="diag-row">
-                <span class="diag-key">Runtime Dir</span>
-                <code class="diag-value" id="runtimeDirText">.runtime</code>
-              </div>
-              <div class="diag-row">
-                <span class="diag-key">Log File</span>
-                <code class="diag-value" id="logFileText">.runtime/gliner2_server.log</code>
-              </div>
-              <div class="diag-cmd">
-                <div class="install-header">
-                  <span class="install-title">Log Command</span>
-                  <button id="copyLogCommandButton" type="button" class="ghost compact">Copy</button>
-                </div>
-                <pre class="cmd-box"><code id="logCommandText">tail -n 80 .runtime/gliner2_server.log</code></pre>
-              </div>
-            </section>
-
+      <!-- Panel: HF Token -->
+      <div id="hfTokenPanel" class="tool-panel">
+        <section class="server-tool-panel token-tools">
+          <p class="panel-title">Hugging Face Token</p>
+          <p class="hint" style="margin-top:4px">Used only for model download. Stored locally.</p>
+          <label class="field field-tight" for="hfTokenInput">
+            <div class="secret-input-row">
+              <input id="hfTokenInput" type="password" autocomplete="off" spellcheck="false" placeholder="hf_xxx...">
+              <button type="button" class="ghost compact eye-btn" id="toggleHfTokenVisibility" aria-label="Show/hide token" title="Show/hide">
+                <svg class="eye-icon" viewBox="0 0 20 20" fill="none"><path d="M2.5 10C4.5 6.5 7 5 10 5s5.5 1.5 7.5 5c-2 3.5-4.5 5-7.5 5s-5.5-1.5-7.5-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
+              </button>
+            </div>
+          </label>
+          <div class="button-row">
+            <button id="saveHfTokenButton" type="button" class="ghost">Save Token</button>
+            <button id="clearHfTokenButton" type="button" class="secondary">Clear</button>
+            <span class="saved-badge" id="hfTokenSavedBadge" hidden>&#10003; Saved</span>
           </div>
-        </div>
+        </section>
+      </div>
+
+      <!-- Panel: API Key -->
+      <div id="apiKeyPanel" class="tool-panel" hidden>
+        <section class="server-tool-panel token-tools">
+          <p class="panel-title">Anonymization API Key</p>
+          <p class="hint" style="margin-top:4px">Used for anonymization mode. Stored locally in this browser profile only &mdash; never transmitted except to your local proxy.</p>
+
+          <!-- Saved state (shown when key exists) -->
+          <div id="apiKeySavedState" hidden>
+            <div class="api-key-saved-card">
+              <div class="api-key-saved-info">
+                <div class="api-key-saved-icon" aria-hidden="true">&#128273;</div>
+                <div>
+                  <div class="api-key-saved-title">API Key Saved</div>
+                  <div class="api-key-saved-preview" id="apiKeyPreview">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</div>
+                </div>
+              </div>
+              <div class="api-key-saved-actions">
+                <button type="button" class="ghost compact" id="revealApiKeyButton">Show</button>
+                <button type="button" class="secondary compact" id="removeApiKeyButton">Remove</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Input state (shown when no key) -->
+          <div id="apiKeyInputState">
+            <label class="field field-tight" for="veilApiKeyInput">
+              <div class="secret-input-row">
+                <input id="veilApiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key...">
+                <button type="button" class="ghost compact eye-btn" id="toggleApiKeyVisibility" aria-label="Show/hide key" title="Show/hide">
+                  <svg class="eye-icon" viewBox="0 0 20 20" fill="none"><path d="M2.5 10C4.5 6.5 7 5 10 5s5.5 1.5 7.5 5c-2 3.5-4.5 5-7.5 5s-5.5-1.5-7.5-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
+                </button>
+              </div>
+            </label>
+            <div class="button-row">
+              <button id="saveApiKeyButton" type="button" class="ghost">Save API Key</button>
+            </div>
+          </div>
+
+          <p class="hint install-note" style="margin-top:6px">Only used when Redaction Mode is set to Anonymize.</p>
+        </section>
+      </div>
+
+      <!-- Panel: Diagnostics -->
+      <div id="diagnosticsPanel" class="tool-panel" hidden>
+        <section class="server-tool-panel">
+          <p class="panel-title">Diagnostics</p>
+
+          <label class="field field-tight" style="margin-bottom:8px">
+            <span style="font-size:11px;font-weight:600;color:var(--ink)">GLiNER2 Model</span>
+            <select id="modelSelect">
+              <option value="fastino/gliner2-large-v1">gliner2-large-v1 — 340 M &nbsp;(best quality)</option>
+              <option value="fastino/gliner2-base-v1">gliner2-base-v1 — 205 M &nbsp;(faster, less RAM)</option>
+              <option value="fastino/gliner2-multi-v1">gliner2-multi-v1 — multilingual</option>
+            </select>
+            <p class="hint" style="margin:3px 0 0">Takes effect on next server start. Downloads automatically.</p>
+          </label>
+
+          <div class="diag-row">
+            <span class="diag-key">Active Model</span>
+            <code class="diag-value" id="modelText">—</code>
+          </div>
+          <div class="diag-row">
+            <span class="diag-key">Runtime Dir</span>
+            <code class="diag-value" id="runtimeDirText">.runtime</code>
+          </div>
+          <div class="diag-row">
+            <span class="diag-key">Log File</span>
+            <code class="diag-value" id="logFileText">.runtime/gliner2_server.log</code>
+          </div>
+          <div class="diag-cmd">
+            <div class="install-header">
+              <span class="install-title">Log Command</span>
+              <button id="copyLogCommandButton" type="button" class="ghost compact">Copy</button>
+            </div>
+            <pre class="cmd-box"><code id="logCommandText">tail -n 80 .runtime/gliner2_server.log</code></pre>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -283,7 +289,7 @@
           <option value="mask">Mask — [EMAIL REDACTED]</option>
           <option value="anonymize" id="anonymizeOption">Anonymize — MayaDataPrivacy</option>
         </select>
-        <p class="hint" id="anonymizeHint" style="margin:3px 0 0" hidden>Requires a MayaDataPrivacy API key — paste it in the API Key tab above.</p>
+        <p class="hint" id="anonymizeHint" style="margin:3px 0 0" hidden>API key required — paste your MayaDataPrivacy key in the API Key tab above to enable this mode.</p>
       </label>
       <label class="field">
         <span>Sensitivity</span>
@@ -325,11 +331,11 @@
         <label><input type="checkbox" class="type-checkbox" value="email" checked>Emails</label>
         <label><input type="checkbox" class="type-checkbox" value="phone" checked>Phone</label>
         <label><input type="checkbox" class="type-checkbox" value="address" checked>Address</label>
-        <label><input type="checkbox" class="type-checkbox" value="ssn" checked>SSN</label>
-        <label><input type="checkbox" class="type-checkbox" value="credit_card" checked>Card</label>
-        <label><input type="checkbox" class="type-checkbox" value="date_of_birth" checked>DOB</label>
+        <label title="Social Security Number / National ID"><input type="checkbox" class="type-checkbox" value="ssn" checked>SSN</label>
+        <label title="Credit or debit card number"><input type="checkbox" class="type-checkbox" value="credit_card" checked>Card</label>
+        <label title="Date of birth"><input type="checkbox" class="type-checkbox" value="date_of_birth" checked>DOB</label>
         <label><input type="checkbox" class="type-checkbox" value="location" checked>Location</label>
-        <label><input type="checkbox" class="type-checkbox" value="organization" checked>Org</label>
+        <label title="Company or organization name"><input type="checkbox" class="type-checkbox" value="organization" checked>Org</label>
       </div>
 
       <div class="patterns-section" style="margin-top:12px">

@@ -35,7 +35,9 @@ const PLATFORM_SELECTORS = {
     '[contenteditable="true"].ce-block'
   ],
   gemini: [
-    'text-area[aria-label*="message"]',
+    '[aria-label*="message"] textarea',
+    'rich-textarea textarea',
+    'text-area textarea',
     '.gemini-chat-input textarea',
     'textarea[placeholder*="message"]',
     'input[aria-label*="prompt"]',
@@ -114,6 +116,7 @@ const LEGACY_OPENAI_KEY_PATTERN = '\\bsk-[A-Za-z0-9]{20,}\\b';
 // ── Selectors that identify known LLM response / output areas ──
 const RESPONSE_AREA_SELECTORS = [
   '[data-message-author-role="assistant"]',
+  '[data-message-author-role="user"]',
   '[data-is-streaming]',
   '.assistant-message',
   '.markdown-body',
@@ -189,6 +192,15 @@ class PrivacyShield {
     this.autoRedactTimers = new Map();
     this.dismissedDetections = new WeakMap(); // element → Set of "start:end:label"
 
+    // Per-site alias ledger — ensures PERSON_1 stays PERSON_1 across sessions
+    // on the same site. Loaded from chrome.storage on init, 30-day TTL.
+    this.siteAliasCache = { aliases: {}, counters: {}, maskCounters: {} };
+    this.siteAliasPersistTimer = null;
+
+    // Per-site redact-all counter — used to offer "always auto-redact here?" after
+    // the user has manually clicked Redact All multiple times.
+    this.siteRedactCount = 0;
+
     this.activePopover = null;
     this.activePopoverHideTimer = null;
     this.activeRevealOverlay = null;
@@ -244,6 +256,9 @@ class PrivacyShield {
     this.isEnabled = true;
     this.createOverlay();
     await this.initializeModel();
+    // Load per-site alias ledger before starting monitoring so that the first
+    // element to trigger detection already has the correct counter seed.
+    await this.loadSiteAliasLedger();
     this.startMonitoring();
 
     // Rehydrate cached redactions
@@ -385,6 +400,14 @@ class PrivacyShield {
     window.addEventListener('scroll', this.handleViewportChange, true);
     window.addEventListener('resize', this.handleViewportChange);
 
+    // Hide scanning pills when the tab goes to the background so they don't
+    // linger and appear stale when switching back.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this.monitoredElements.forEach((_, el) => this.hideScanningPill(el));
+      }
+    });
+
     chrome.storage.onChanged.addListener((changes) => {
       if (
         changes.enabled ||
@@ -456,10 +479,13 @@ class PrivacyShield {
       if (!this.redactions.has(element)) return;
       const text = this.getRawElementText(element);
       if (!text || text.trim().length < 1) {
-        this.clearElementState(element);
-        // Clear stale caches to prevent cross-contamination with new composer elements
-        this.dismissedDetections.delete(element);
-        this.aliasLedgers.delete(element);
+        const prevState = this.redactions.get(element);
+        if (!prevState?.items?.some((item) => item.redacted)) {
+          this.clearElementState(element);
+          // Clear stale caches to prevent cross-contamination with new composer elements
+          this.dismissedDetections.delete(element);
+          this.aliasLedgers.delete(element);
+        }
       }
     });
   }
@@ -489,7 +515,10 @@ class PrivacyShield {
 
       const raw = this.getRawElementText(element);
       if (!raw || raw.trim().length < 1) {
-        this.clearElementState(element);
+        const existingState = this.redactions.get(element);
+        if (!existingState?.items?.some((item) => item.redacted)) {
+          this.clearElementState(element);
+        }
       }
     });
 
@@ -563,6 +592,7 @@ class PrivacyShield {
       const timer = setTimeout(() => {
         if (!this.redactions.has(element)) return;
         const raw = this.getRawElementText(element);
+        // Post-send: always clear when empty — guard only applies to mid-typing reconciliation.
         if (!raw || raw.trim().length < 1 || this.isResponseArea(element)) {
           this.clearElementState(element);
         }
@@ -634,7 +664,9 @@ class PrivacyShield {
         // Immediately remove the highlight overlay so it doesn't linger
         this.clearHighlights(element);
         this.removeActionBar(element);
+        this.removeTokenTray(element);
         this.hideScanningPill(element);
+        this.hidePopover();
         this.schedulePostInteractionCleanup(element);
       }
     };
@@ -786,6 +818,31 @@ class PrivacyShield {
     });
   }
 
+  updateScanningPillWithSensitivity(element, { sensitivity, score }) {
+    if (!sensitivity || sensitivity === 'none' || sensitivity === 'low') return;
+    const pill = this.scanningPills.get(element);
+    if (!pill) return;
+    const colors = { high: '#dc2626', medium: '#d97706' };
+    const labels = { high: 'High Risk', medium: 'Moderate Risk' };
+    const color = colors[sensitivity];
+    const label = labels[sensitivity];
+    if (!color) return;
+    let badge = pill.querySelector('.ps-sensitivity-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'ps-sensitivity-badge';
+      badge.style.cssText = `
+        display:inline-block;padding:1px 6px;border-radius:999px;
+        font-size:9px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;
+        margin-left:4px;
+      `;
+      pill.appendChild(badge);
+    }
+    badge.textContent = label;
+    badge.style.setProperty('color', '#fff');
+    badge.style.setProperty('background', color);
+  }
+
   hideScanningPill(element) {
     const pill = this.scanningPills.get(element);
     if (!pill) return;
@@ -811,19 +868,39 @@ class PrivacyShield {
     const currentState = this.redactions.get(element);
 
     // Prevent re-detect loops when the semantic source text has not changed.
-    if (currentState?.sourceText === sourceText) {
+    // Trim both sides to tolerate trailing newlines added by block-element editors (e.g. Gemini).
+    if (currentState?.sourceText !== undefined &&
+        currentState.sourceText.trim() === sourceText.trim()) {
       this.lastAnalyzedSnapshot.set(element, snapshotKey);
       return;
     }
 
     if (!sourceText || sourceText.trim().length < 3) {
-      this.clearElementState(element);
+      const prevState = this.redactions.get(element);
+      if (!prevState?.items?.some((item) => item.redacted)) {
+        this.clearElementState(element);
+      }
+      this.lastAnalyzedSnapshot.set(element, snapshotKey);
+      return;
+    }
+
+    // If the text is composed entirely of redaction tokens (state was lost and
+    // restoration failed), skip detection — there is nothing real to detect.
+    const strippedOfTokens = sourceText.replace(/\[[A-Z][A-Z\s]*REDACTED\]/gi, '').trim();
+    if (!strippedOfTokens || strippedOfTokens.length < 3) {
       this.lastAnalyzedSnapshot.set(element, snapshotKey);
       return;
     }
 
     this.setAnalyzingState(element, true);
     this.showScanningPill(element);
+
+    if (sourceText.length >= 20) {
+      chrome.runtime.sendMessage({ action: 'classifyPII', text: sourceText }, (res) => {
+        if (chrome.runtime.lastError) return;
+        if (res?.success && res.result) this.updateScanningPillWithSensitivity(element, res.result);
+      });
+    }
 
     try {
       const response = await chrome.runtime.sendMessage({
@@ -840,7 +917,10 @@ class PrivacyShield {
       });
 
       if (!response?.success || !Array.isArray(response.detections) || response.detections.length === 0) {
-        this.clearElementState(element);
+        const prevState = this.redactions.get(element);
+        if (!prevState?.items?.some((item) => item.redacted)) {
+          this.clearElementState(element);
+        }
         this.lastAnalyzedSnapshot.set(element, snapshotKey);
         return;
       }
@@ -866,8 +946,9 @@ class PrivacyShield {
           if (item.alias) knownReplacements.add(`<${item.alias}>`);
           if (item.anonymizedText) knownReplacements.add(item.anonymizedText);
           if (item.replacement) knownReplacements.add(item.replacement);
-          // Also add the mask text variants
+          // Also add the mask text variants (both generic and numbered)
           knownReplacements.add(this.getMaskText(item.label));
+          if (item.maskIndex != null) knownReplacements.add(this.getMaskText(item.label, item.maskIndex));
         });
         detections = detections.filter((d) => {
           const text = String(d.text || '').trim();
@@ -966,6 +1047,11 @@ class PrivacyShield {
     } catch (error) {
       console.error('[Veil] detection error:', error);
       this.lastAnalyzedSnapshot.set(element, snapshotKey);
+      // Surface model-offline state as a non-blocking notification so users know
+      // regex fallback is active rather than silently getting degraded detection.
+      if (/failed to fetch|networkerror|connection refused|econnrefused/i.test(String(error?.message || ''))) {
+        this.showNotification('Model offline — regex fallback active', 'warning');
+      }
     } finally {
       this.hideScanningPill(element);
       this.setAnalyzingState(element, false);
@@ -1156,6 +1242,8 @@ class PrivacyShield {
     // Text that looks like a corrupted/concatenated redaction artefact
     // e.g. "phon:930409..." or "emailfoo@bar.commom"
     if (/\[\w+\s+REDACTED\]/i.test(text)) return true;
+    // "WORD REDACTED" without brackets — GLiNER span may exclude the surrounding brackets
+    if (/^[A-Z][A-Z\s]{1,30}\s+REDACTED$/i.test(text)) return true;
     return false;
   }
 
@@ -1195,7 +1283,13 @@ class PrivacyShield {
 
   getAliasLedger(element) {
     if (this.aliasLedgers.has(element)) return this.aliasLedgers.get(element);
-    const ledger = { aliases: new Map(), counters: new Map() };
+    // Pre-populate ledger from the site alias cache so aliases stay consistent
+    // across sessions (e.g. PERSON_1 remains PERSON_1 on the same site).
+    const ledger = {
+      aliases: new Map(Object.entries(this.siteAliasCache.aliases || {})),
+      counters: new Map(Object.entries(this.siteAliasCache.counters || {}).map(([k, v]) => [k, Number(v)])),
+      maskCounters: new Map(Object.entries(this.siteAliasCache.maskCounters || {}).map(([k, v]) => [k, Number(v)]))
+    };
     this.aliasLedgers.set(element, ledger);
     return ledger;
   }
@@ -1214,11 +1308,25 @@ class PrivacyShield {
     if (!alias) {
       alias = this.allocateAlias(detection.label, ledger);
       ledger.aliases.set(key, alias);
+      // Persist new alias to site cache
+      this.siteAliasCache.aliases[key] = alias;
+      this.persistSiteAliasLedger();
     }
+
+    // Allocate a stable numeric index per label type for numbered mask tokens,
+    // e.g. [NAME_1 REDACTED], [NAME_2 REDACTED] — enables response de-anonymization.
+    if (!ledger.maskCounters) ledger.maskCounters = new Map();
+    const maskKey = String(detection.label || 'pii').toUpperCase().replace(/[^A-Z0-9]+/g, '_') || 'PII';
+    const maskIndex = (ledger.maskCounters.get(maskKey) || 0) + 1;
+    ledger.maskCounters.set(maskKey, maskIndex);
+    // Persist mask counter to site cache
+    this.siteAliasCache.maskCounters[maskKey] = maskIndex;
+    this.persistSiteAliasLedger();
 
     return {
       ...detection,
       alias,
+      maskIndex,
       anonymizedText: detection.anonymizedText ? String(detection.anonymizedText) : null,
       replacement: detection.replacement ? String(detection.replacement) : null,
       redacted: false,   // Start as underlined, NOT redacted
@@ -1233,6 +1341,9 @@ class PrivacyShield {
       .replace(/^_+|_+$/g, '') || 'PII';
     const next = (ledger.counters.get(normalized) || 0) + 1;
     ledger.counters.set(normalized, next);
+    // Keep site alias cache in sync so counters persist across sessions
+    this.siteAliasCache.counters[normalized] = next;
+    this.persistSiteAliasLedger();
     return `${normalized}_${next}`;
   }
 
@@ -1278,6 +1389,14 @@ class PrivacyShield {
       this.persistCache(element);
       this.showNotification(`${count} item${count === 1 ? '' : 's'} protected`, 'info');
       this.updateStats(0, count);
+      // Decode any matching tokens in AI response areas now that new redactions exist
+      this.scanExistingResponseAreas();
+      // Track per-site manual redact count — after 3 times offer always-auto-redact
+      this.siteRedactCount += 1;
+      chrome.storage.local.set({ [this.getSiteRedactCountKey()]: this.siteRedactCount });
+      if (this.siteRedactCount === 3 && !this.settings.autoRedact) {
+        setTimeout(() => this.showNotification('Tip: enable Auto-Redact in Veil settings to do this automatically.', 'info'), 1200);
+      }
     }
   }
 
@@ -1511,6 +1630,7 @@ class PrivacyShield {
           `<span class="ps-pii-underline${flashClass}"` +
           ` data-index="${index}"` +
           ` data-ps-original="${this._escapeAttr(originalText)}"` +
+          (item.tier ? ` data-tier="${item.tier}"` : '') +
           ` style="--detection-color:${color};--stagger:${stagger}"` +
           `>${escapedOriginal}</span>`
         );
@@ -1693,7 +1813,12 @@ class PrivacyShield {
       const mode = span.classList.contains('ps-pii-underline') ? 'underline' : 'redacted';
 
       // Capture rect NOW — synchronously — before any reconciliation microtask runs.
-      const anchorRect = span.getBoundingClientRect();
+      // Use getClientRects() to get the visual line segment under the cursor; a plain
+      // getBoundingClientRect() gives a giant combined box for wrapped tokens.
+      const rects = span.getClientRects();
+      const anchorRect = [...rects].find(r => event.clientY >= r.top && event.clientY <= r.bottom)
+        ?? rects[0]
+        ?? span.getBoundingClientRect();
 
       if (mode === 'redacted') {
         const currentState = this.redactions.get(element);
@@ -1702,7 +1827,6 @@ class PrivacyShield {
           this.showRevealOverlay(current.text, anchorRect, span);
         }
       }
-      this.showPopover(span, element, index, mode, anchorRect);
     });
 
     element.addEventListener('mouseout', (event) => {
@@ -1711,7 +1835,6 @@ class PrivacyShield {
       // Skip if the pointer is still within the same span (moving between child nodes)
       if (span.contains(event.relatedTarget)) return;
       this.hideRevealOverlay();
-      this.schedulePopoverHide();
     });
   }
 
@@ -1722,16 +1845,11 @@ class PrivacyShield {
     span.className = 'ps-pii-underline';
     span.setAttribute('data-index', String(index));
     span.setAttribute('data-ps-original', String(item.text || ''));
+    if (item.tier) span.setAttribute('data-tier', item.tier);
     span.style.setProperty('--detection-color', this.getTypeColor(item.label));
     span.style.setProperty('--stagger', `${Math.min(index * 40, 300)}ms`);
     span.textContent = item.text;
 
-    span.addEventListener('mouseenter', () => {
-      this.showPopover(span, element, index, 'underline');
-    });
-    span.addEventListener('mouseleave', () => {
-      this.schedulePopoverHide();
-    });
     span.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1768,28 +1886,6 @@ class PrivacyShield {
       span.classList.add('ps-undo-ripple');
     }
 
-    // Hover preview: show original text
-    const setHoverPreview = (preview) => {
-      const currentState = this.redactions.get(element);
-      const current = currentState?.items?.[index];
-      if (!current || !current.redacted) return;
-      if (preview) {
-        span.classList.add('ps-redaction-hover-preview');
-        span.textContent = current.text;
-      } else {
-        span.classList.remove('ps-redaction-hover-preview');
-        span.textContent = this.getReplacementText(current);
-      }
-    };
-
-    span.addEventListener('mouseenter', () => {
-      setHoverPreview(true);
-      this.showPopover(span, element, index, 'redacted');
-    });
-    span.addEventListener('mouseleave', () => {
-      setHoverPreview(false);
-      this.schedulePopoverHide();
-    });
     span.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1820,10 +1916,10 @@ class PrivacyShield {
       return `<${item.alias}>`;
     }
     if (item.replacement) return item.replacement;
-    return this.getMaskText(item.label);
+    return this.getMaskText(item.label, item.maskIndex ?? null);
   }
 
-  getMaskText(label) {
+  getMaskText(label, maskIndex = null) {
     const map = {
       person: '[NAME REDACTED]',
       email: '[EMAIL REDACTED]',
@@ -1838,7 +1934,11 @@ class PrivacyShield {
       ip_address: '[IP REDACTED]',
       jwt: '[JWT REDACTED]'
     };
-    return map[label] || `[${String(label || 'PII').toUpperCase()} REDACTED]`;
+    const base = map[label] || `[${String(label || 'PII').toUpperCase()} REDACTED]`;
+    // Insert numeric index before REDACTED so tokens are uniquely identifiable:
+    // [NAME REDACTED] → [NAME_1 REDACTED]. This enables response de-anonymization.
+    if (maskIndex != null) return base.replace(/ REDACTED]$/, `_${maskIndex} REDACTED]`);
+    return base;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1848,89 +1948,11 @@ class PrivacyShield {
   // anchorRect: pre-captured getBoundingClientRect() from the hover event.
   // Passing it avoids relying on the span still being in the DOM by the time
   // requestAnimationFrame fires (rich editors may reconcile in between).
-  showPopover(anchorSpan, element, index, mode, anchorRect = null) {
-    this.cancelPopoverHide();
-    this.hidePopover();
-
-    const state = this.redactions.get(element);
-    if (!state || !state.items[index]) return;
-    // Only bail if we have neither a live span nor a pre-captured rect.
-    if (!anchorRect && !anchorSpan?.isConnected) return;
-
-    const item = state.items[index];
-
-    const popover = document.createElement('div');
-    popover.className = 'ps-popover';
-    const typeColor = this.getTypeColor(item.label);
-    popover.style.setProperty('--detection-color', typeColor);
-
-    // Always escape user-derived content before injecting into innerHTML
-    const labelText = this.escapeHtml(this.formatLabel(item.label));
-    const itemText = this.escapeHtml(item.text);
-
-    if (mode === 'underline') {
-      popover.innerHTML = `
-        <div class="ps-popover-label" style="color:${typeColor}">${labelText} detected</div>
-        <div class="ps-popover-text">&ldquo;${itemText}&rdquo;</div>
-        <div class="ps-popover-actions">
-          <button type="button" class="ps-popover-btn ps-popover-btn-primary" data-action="redact">Redact</button>
-          <button type="button" class="ps-popover-btn ps-popover-btn-dismiss" data-action="dismiss">Dismiss</button>
-        </div>
-      `;
-    } else if (item.redacted) {
-      popover.innerHTML = `
-        <div class="ps-popover-label" style="color:${typeColor}">${labelText}</div>
-        <div class="ps-popover-text">Original: &ldquo;${itemText}&rdquo;</div>
-        <div class="ps-popover-actions">
-          <button type="button" class="ps-popover-btn ps-popover-btn-restore" data-action="restore">Restore</button>
-        </div>
-      `;
-    } else {
-      popover.innerHTML = `
-        <div class="ps-popover-label" style="color:${typeColor}">${labelText}</div>
-        <div class="ps-popover-text">&ldquo;${itemText}&rdquo;</div>
-        <div class="ps-popover-actions">
-          <button type="button" class="ps-popover-btn ps-popover-btn-primary" data-action="redact">Re-Redact</button>
-        </div>
-      `;
-    }
-
-    popover.addEventListener('mouseenter', () => this.cancelPopoverHide());
-    popover.addEventListener('mouseleave', () => this.schedulePopoverHide());
-    popover.addEventListener('click', (event) => {
-      const action = event.target?.getAttribute?.('data-action');
-      if (!action) return;
-      if (action === 'redact') {
-        this.redactSingle(element, index);
-      } else if (action === 'restore') {
-        this.restoreSingle(element, index);
-      } else if (action === 'dismiss') {
-        this.dismissDetection(element, index);
-      }
-      this.hidePopover();
-      this.hideRevealOverlay();
-    });
-
-    document.body.appendChild(popover);
-    this.activePopover = popover;
-
-    // Position above the anchor span.
-    // Use the pre-captured rect when available so positioning works even if
-    // the editor has already reconciled the span away by the time rAF fires.
-    requestAnimationFrame(() => {
-      const rect = anchorRect
-        || (anchorSpan?.isConnected ? anchorSpan.getBoundingClientRect() : null);
-      if (!rect || rect.width === 0) { this.hidePopover(); return; }
-
-      const popRect = popover.getBoundingClientRect();
-      const top = window.scrollY + rect.top - popRect.height - 12;
-      const left = window.scrollX + rect.left + (rect.width / 2) - (popRect.width / 2);
-
-      popover.style.top = `${Math.max(window.scrollY + 4, top)}px`;
-      popover.style.left = `${Math.max(window.scrollX + 4, left)}px`;
-      popover.classList.add('ps-popover-visible');
-    });
-  }
+  // Popover removed — actions (redact/restore) are accessible via token tray chips and
+  // the inline click handler on detection spans. showPopover is kept as a no-op so any
+  // remaining call sites are safe.
+  // eslint-disable-next-line no-unused-vars
+  showPopover(_anchorSpan, _element, _index, _mode, _anchorRect = null) {}
 
   hidePopover() {
     if (!this.activePopover) return;
@@ -1961,7 +1983,6 @@ class PrivacyShield {
       // original text doesn't get clipped.
       `left:${anchorRect.left + anchorRect.width / 2}px`,
       `transform:translateX(-50%)`,
-      `min-width:${anchorRect.width}px`,
       `height:${anchorRect.height}px`,
       `display:flex`,
       `align-items:center`,
@@ -2022,45 +2043,47 @@ class PrivacyShield {
         : this._getTextNodeRange(element, item.start, item.end);
 
       if (!range) return;
-      const rect = range.getBoundingClientRect();
-      if (!rect || rect.width === 0) return;
-
-      const hl = document.createElement('div');
-      hl.className = `ps-overlay-hl ${item.redacted ? 'ps-overlay-hl-redacted' : 'ps-overlay-hl-underline'}`;
-      hl.setAttribute('data-index', String(index));
+      // Use getClientRects() instead of getBoundingClientRect() so that tokens
+      // wrapping across multiple visual lines get one hl div per line segment,
+      // not a single giant bounding-box rectangle.
+      const lineRects = [...range.getClientRects()].filter(r => r.width > 0);
+      if (!lineRects.length) return;
 
       const color = this.getTypeColor(item.label);
-      hl.style.cssText = [
-        'position:fixed',
-        `left:${rect.left}px`,
-        `top:${rect.top}px`,
-        `width:${rect.width}px`,
-        `height:${rect.height}px`,
-        `--hl-color:${color}`,
-      ].join(';');
+      lineRects.forEach(rect => {
+        const hl = document.createElement('div');
+        hl.className = `ps-overlay-hl ${item.redacted ? 'ps-overlay-hl-redacted' : 'ps-overlay-hl-underline'}`;
+        hl.setAttribute('data-index', String(index));
+        hl.style.cssText = [
+          'position:fixed',
+          `left:${Math.round(rect.left)}px`,
+          `top:${Math.round(rect.top)}px`,
+          `width:${Math.round(rect.width)}px`,
+          `height:${Math.round(rect.height)}px`,
+          `--hl-color:${color}`,
+        ].join(';');
 
-      hl.addEventListener('mouseenter', () => {
-        const hlRect = hl.getBoundingClientRect();
-        if (item.redacted) this.showRevealOverlay(item.text, hlRect, hl);
-        this.showPopover(null, element, index, item.redacted ? 'redacted' : 'underline', hlRect);
-      });
-      hl.addEventListener('mouseleave', () => {
-        this.hideRevealOverlay();
-        this.schedulePopoverHide();
-      });
-      hl.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.hideRevealOverlay();
-        if (item.redacted) {
-          this.toggleRedaction(element, index);
-        } else {
-          this.redactSingle(element, index);
-        }
-      });
+        hl.addEventListener('mouseenter', () => {
+          const hlRect = hl.getBoundingClientRect();
+          if (item.redacted) this.showRevealOverlay(item.text, hlRect, hl);
+        });
+        hl.addEventListener('mouseleave', () => {
+          this.hideRevealOverlay();
+        });
+        hl.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.hideRevealOverlay();
+          if (item.redacted) {
+            this.toggleRedaction(element, index);
+          } else {
+            this.redactSingle(element, index);
+          }
+        });
 
-      document.body.appendChild(hl);
-      highlights.push(hl);
+        document.body.appendChild(hl);
+        highlights.push(hl);
+      });
     });
 
     if (highlights.length) {
@@ -2192,12 +2215,16 @@ class PrivacyShield {
     document.body.appendChild(bar);
     this.actionBars.set(element, bar);
 
-    // Position below the element
+    // Position below the element, clamped to viewport right edge
     const rect = element.getBoundingClientRect();
     bar.style.top = `${window.scrollY + rect.bottom + 6}px`;
     bar.style.left = `${window.scrollX + rect.left}px`;
 
-    requestAnimationFrame(() => bar.classList.add('ps-action-bar-visible'));
+    requestAnimationFrame(() => {
+      const maxLeft = window.scrollX + window.innerWidth - bar.offsetWidth - 8;
+      if (parseFloat(bar.style.left) > maxLeft) bar.style.left = `${Math.max(8, maxLeft)}px`;
+      bar.classList.add('ps-action-bar-visible');
+    });
   }
 
   removeActionBar(element) {
@@ -2303,23 +2330,8 @@ class PrivacyShield {
       chip.type = 'button';
       chip.className = `ps-token-chip ${item.redacted ? 'is-redacted' : 'is-restored'}`;
       chip.style.setProperty('--chip-color', this.getTypeColor(item.label));
-      chip.textContent = item.redacted ? this.getReplacementText(item) : item.text;
-      chip.title = item.redacted ? 'Hover for restore option' : 'Click to re-redact';
-      chip.addEventListener('mouseenter', () => {
-        chip.classList.add('is-hover-preview');
-        if (item.redacted) {
-          chip.textContent = `Restore: ${this.summarizeTokenText(item.text)}`;
-          chip.title = 'Click to restore original.';
-        } else {
-          chip.textContent = 'Re-Redact';
-          chip.title = 'Click to mask this value again.';
-        }
-      });
-      chip.addEventListener('mouseleave', () => {
-        chip.classList.remove('is-hover-preview');
-        chip.textContent = item.redacted ? this.getReplacementText(item) : item.text;
-        chip.title = item.redacted ? 'Hover for restore option' : 'Click to re-redact';
-      });
+      chip.textContent = this.summarizeTokenText(item.text);
+      chip.title = item.redacted ? 'Click to restore' : 'Click to re-redact';
       chip.addEventListener('click', () => this.toggleRedaction(element, index));
       tray.appendChild(chip);
     });
@@ -2333,6 +2345,10 @@ class PrivacyShield {
     tray.style.left = `${window.scrollX + rect.left}px`;
     tray.style.maxWidth = `${Math.max(220, rect.width)}px`;
     tray.classList.add('ps-token-tray-visible');
+    requestAnimationFrame(() => {
+      const maxLeft = window.scrollX + window.innerWidth - tray.offsetWidth - 8;
+      if (parseFloat(tray.style.left) > maxLeft) tray.style.left = `${Math.max(8, maxLeft)}px`;
+    });
   }
 
   repositionTokenTrays() {
@@ -2546,9 +2562,14 @@ class PrivacyShield {
 
     if (request?.action !== 'getPageStats') return false;
     if (window !== window.top) return false;
+    const reverseMap = this.buildGlobalReverseMap();
+    const redactionKey = reverseMap.size
+      ? Object.fromEntries([...reverseMap])
+      : null;
     sendResponse({
       success: true,
-      stats: { ...this.pageStats }
+      stats: { ...this.pageStats },
+      redactionKey
     });
     return false;
   }
@@ -2620,6 +2641,174 @@ class PrivacyShield {
 
     window.removeEventListener('scroll', this.handleViewportChange, true);
     window.removeEventListener('resize', this.handleViewportChange);
+
+    if (this.responseDecoderObserver) {
+      this.responseDecoderObserver.disconnect();
+      this.responseDecoderObserver = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Per-Site Persistent Memory
+  // ═══════════════════════════════════════════════════════════
+
+  getSiteAliasKey() {
+    return `veil::aliases::${location.hostname}`;
+  }
+
+  getSiteRedactCountKey() {
+    return `veil::redactCount::${location.hostname}`;
+  }
+
+  async loadSiteAliasLedger() {
+    const key = this.getSiteAliasKey();
+    const countKey = this.getSiteRedactCountKey();
+    try {
+      const data = await new Promise((resolve) => chrome.storage.local.get([key, countKey], resolve));
+      const stored = data[key];
+      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+      if (stored && stored.updatedAt && (Date.now() - stored.updatedAt) < thirtyDays) {
+        this.siteAliasCache = {
+          aliases: stored.aliases || {},
+          counters: stored.counters || {},
+          maskCounters: stored.maskCounters || {}
+        };
+      }
+      this.siteRedactCount = Number(data[countKey] || 0);
+    } catch { /* non-fatal */ }
+  }
+
+  persistSiteAliasLedger() {
+    // Debounce writes — alias allocations happen in bursts during detection
+    clearTimeout(this.siteAliasPersistTimer);
+    this.siteAliasPersistTimer = setTimeout(() => {
+      const key = this.getSiteAliasKey();
+      chrome.storage.local.set({
+        [key]: { ...this.siteAliasCache, updatedAt: Date.now() }
+      });
+    }, 1000);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Response De-Anonymization ("Invisible Veil")
+  // ═══════════════════════════════════════════════════════════
+
+  // Build a reverse map from all active redaction states: token → originalText.
+  // Covers mask tokens ([NAME_1 REDACTED]), alias tokens (<PERSON_1>), and
+  // synthetic names (anonymize mode). Memory-only — never persisted.
+  buildGlobalReverseMap() {
+    const map = new Map();
+    this.redactions.forEach((state) => {
+      if (!state?.items) return;
+      state.items.forEach((item) => {
+        if (!item.redacted) return;
+        const original = item.text;
+        // Numbered mask token: [NAME_1 REDACTED]
+        if (item.maskIndex != null) map.set(this.getMaskText(item.label, item.maskIndex), original);
+        // Generic mask token (backward compat): [NAME REDACTED]
+        map.set(this.getMaskText(item.label), original);
+        // Alias token: <PERSON_1>
+        if (item.alias) map.set(`<${item.alias}>`, original);
+        // Synthetic name (anonymize mode)
+        if (item.anonymizedText) map.set(item.anonymizedText, original);
+      });
+    });
+    return map;
+  }
+
+  // Replace tokens inside a response-area element tree with hoverable spans.
+  // Called on initial scan and again whenever new redactions are committed.
+  processResponseNodeTree(container, reverseMap) {
+    if (!container || !reverseMap.size) return;
+
+    // Build a regex from all known tokens (longest first to avoid partial matches)
+    const tokens = [...reverseMap.keys()].sort((a, b) => b.length - a.length);
+    const escapedTokens = tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const tokenRegex = new RegExp(`(${escapedTokens.join('|')})`, 'g');
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) textNodes.push(node);
+
+    textNodes.forEach((textNode) => {
+      if (!textNode.parentNode) return;
+      // Skip text nodes already inside a decoded span or any Veil element
+      if (textNode.parentElement?.closest('.ps-decoded-token, .ps-pii-underline, .ps-redaction, .ps-action-bar, .ps-token-tray, .ps-scanning-pill, .ps-popover')) return;
+
+      const text = textNode.textContent;
+      tokenRegex.lastIndex = 0;
+      if (!tokenRegex.test(text)) return;
+      tokenRegex.lastIndex = 0;
+
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match;
+      while ((match = tokenRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        const token = match[0];
+        const original = reverseMap.get(token);
+        const span = document.createElement('span');
+        span.className = 'ps-decoded-token';
+        span.setAttribute('data-ps-original', original);
+        span.setAttribute('data-ps-token', token);
+        span.title = `\uD83D\uDD13 ${original}`;
+        span.textContent = token;
+        fragment.appendChild(span);
+        lastIndex = match.index + token.length;
+      }
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      textNode.parentNode.replaceChild(fragment, textNode);
+    });
+  }
+
+  // Scan all current response areas for tokens. Called after new redactions are committed.
+  scanExistingResponseAreas() {
+    const reverseMap = this.buildGlobalReverseMap();
+    if (!reverseMap.size) return;
+    const selector = RESPONSE_AREA_SELECTORS.join(', ');
+    try {
+      document.querySelectorAll(selector).forEach((el) => this.processResponseNodeTree(el, reverseMap));
+    } catch { /* ignore invalid selectors on unusual pages */ }
+  }
+
+  // Set up a MutationObserver to decode tokens in response areas as they stream in.
+  initResponseDecoder() {
+    if (this.responseDecoderObserver) return;
+    const responseSelector = RESPONSE_AREA_SELECTORS.join(', ');
+
+    this.responseDecoderObserver = new MutationObserver((mutations) => {
+      const reverseMap = this.buildGlobalReverseMap();
+      if (!reverseMap.size) return;
+
+      for (const mutation of mutations) {
+        for (const added of mutation.addedNodes) {
+          if (added.nodeType === Node.TEXT_NODE) {
+            // Text node added directly into a response area
+            try {
+              if (added.parentElement?.closest(responseSelector)) {
+                this.processResponseNodeTree(added.parentElement, reverseMap);
+              }
+            } catch { /* ignore */ }
+          } else if (added instanceof HTMLElement) {
+            try {
+              if (added.matches(responseSelector) || added.closest(responseSelector)) {
+                this.processResponseNodeTree(added, reverseMap);
+              }
+            } catch { /* ignore */ }
+          }
+        }
+      }
+    });
+
+    this.responseDecoderObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Decode tokens in any response areas already present on the page
+    this.scanExistingResponseAreas();
   }
 }
 

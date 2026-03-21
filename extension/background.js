@@ -28,6 +28,32 @@ const GLINER_LABEL_DESCRIPTIONS = Object.freeze({
   organization: 'company name, organization name, employer, institution, or business name'
 });
 
+function scoreTier(score) {
+  if (score >= 0.80) return 'high';
+  if (score >= 0.60) return 'medium';
+  return 'low';
+}
+
+function buildEntityThresholds(enabledTypes, sensitivity = 'medium') {
+  const base = {
+    ssn:           { low: 0.38, medium: 0.35, high: 0.30 },
+    credit_card:   { low: 0.40, medium: 0.35, high: 0.30 },
+    email:         { low: 0.50, medium: 0.42, high: 0.38 },
+    phone:         { low: 0.55, medium: 0.45, high: 0.40 },
+    date_of_birth: { low: 0.55, medium: 0.48, high: 0.42 },
+    address:       { low: 0.60, medium: 0.52, high: 0.46 },
+    organization:  { low: 0.65, medium: 0.55, high: 0.48 },
+    person:        { low: 0.72, medium: 0.60, high: 0.50 },
+    location:      { low: 0.70, medium: 0.58, high: 0.50 },
+  };
+  const sens = ['low', 'medium', 'high'].includes(sensitivity) ? sensitivity : 'medium';
+  const result = {};
+  for (const type of enabledTypes) {
+    if (base[type]) result[type] = base[type][sens];
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 const DEFAULT_MONITORED_SELECTORS = [
   'textarea',
   'input[type="text"]',
@@ -531,17 +557,21 @@ class GLiNERDetector {
     }
   }
 
-  async fetchWithTimeout(url, options, timeoutMs) {
+  async fetchWithTimeout(url, options, timeoutMs, externalSignal = null) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    // Propagate external cancellation (e.g. per-tab abort) into this request
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     try {
       return await fetch(url, { ...options, signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
     }
   }
 
-  async detectPII(text, options = {}) {
+  async detectPII(text, options = {}, signal = null) {
     await this.initialize();
 
     const threshold = typeof options.threshold === 'number' ? options.threshold : 0.5;
@@ -564,9 +594,10 @@ class GLiNERDetector {
     let modelOnline = false;
     if (this.mode === 'gliner2-local') {
       try {
-        detections.push(...await this.detectWithLocalGLiNER(text, enabledTypes, threshold, customEntityTypes));
+        detections.push(...await this.detectWithLocalGLiNER(text, enabledTypes, threshold, customEntityTypes, options.sensitivity || 'medium', signal));
         modelOnline = true;
       } catch (error) {
+        if (error.name === 'AbortError') throw error; // propagate cancellation up
         console.warn('Local GLiNER2 server unavailable, using fallback detection:', error.message);
         this.mode = 'regex-fallback';
       }
@@ -683,7 +714,7 @@ class GLiNERDetector {
     }
   }
 
-  async detectWithLocalGLiNER(text, enabledTypes, threshold, customEntityTypes = []) {
+  async detectWithLocalGLiNER(text, enabledTypes, threshold, customEntityTypes = [], sensitivity = 'medium', signal = null) {
     // Build labels dict: {internal_name: description}.
     // GLiNER2 uses the description for zero-shot embedding matching and returns
     // detections keyed by the internal name — no reverse mapping needed.
@@ -697,14 +728,19 @@ class GLiNERDetector {
       labels[entity.id] = entity.description;
     }
 
+    const thresholds = buildEntityThresholds(enabledTypes, sensitivity);
+    const requestBody = { text, labels, threshold };
+    if (thresholds) requestBody.thresholds = thresholds;
+
     const response = await this.fetchWithTimeout(
       `${this.localServerUrl}/detect`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, labels, threshold })
+        body: JSON.stringify(requestBody)
       },
-      8000  // longer timeout — server may be chunking + batching long inputs
+      8000,  // longer timeout — server may be chunking + batching long inputs
+      signal
     );
 
     if (!response.ok) {
@@ -744,7 +780,8 @@ class GLiNERDetector {
       end,
       score,
       source,
-      replacement: row.replacement ? String(row.replacement) : null
+      replacement: row.replacement ? String(row.replacement) : null,
+      tier: row.tier || scoreTier(score),
     };
   }
 
@@ -853,6 +890,26 @@ class GLiNERDetector {
     return detections.filter((item) => item.score >= threshold);
   }
 
+  async classifyText(text) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    try {
+      const response = await fetch(`${this.localServerUrl}/classify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data?.ok ? { sensitivity: data.sensitivity, score: data.score, label: data.label } : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   normalizeRegexFlags(flags) {
     const raw = String(flags || 'g');
     const filtered = raw.replace(/[^dgimsuvy]/g, '');
@@ -886,6 +943,10 @@ class GLiNERDetector {
 
 const detector = new GLiNERDetector();
 const anonymizer = new VeilAnonymizer();
+
+// Per-tab AbortControllers — cancels any stale in-flight detection when the same
+// tab fires a new detectPII request (e.g. fast typing across multiple tabs).
+const activeDetectionControllers = new Map(); // tabId → AbortController
 
 // ─── Server crash detection ───────────────────────────────────────────────────
 let prevServerHealthy = null; // null = unknown, true/false = last known state
@@ -984,7 +1045,15 @@ async function handleServerControl(command, options = {}) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'detectPII') {
-    detector.detectPII(request.text, request.options)
+    const tabId = sender?.tab?.id;
+    // Cancel any stale in-flight request from this tab before issuing a new one
+    if (typeof tabId === 'number' && activeDetectionControllers.has(tabId)) {
+      activeDetectionControllers.get(tabId).abort();
+    }
+    const controller = new AbortController();
+    if (typeof tabId === 'number') activeDetectionControllers.set(tabId, controller);
+
+    detector.detectPII(request.text, request.options, controller.signal)
       .then((detections) => anonymizer.enrichDetections(detections, request.options))
       .then((detections) => {
         sendResponse({
@@ -994,8 +1063,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       })
       .catch((error) => {
+        if (error.name === 'AbortError') return; // superseded by newer request — no response needed
         console.error('Detection error:', error);
         sendResponse({ success: false, error: error.message });
+      })
+      .finally(() => {
+        if (typeof tabId === 'number') activeDetectionControllers.delete(tabId);
       });
     return true;
   }
@@ -1022,6 +1095,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       mode: detector.mode,
       localServerUrl: detector.localServerUrl
     });
+  }
+
+  if (request.action === 'classifyPII') {
+    if (detector.mode !== 'gliner2-local') {
+      sendResponse({ success: false, result: null });
+      return;
+    }
+    detector.classifyText(request.text)
+      .then((result) => sendResponse({ success: true, result }))
+      .catch(() => sendResponse({ success: false, result: null }));
+    return true;
   }
 
   if (request.action === 'serverControl') {
