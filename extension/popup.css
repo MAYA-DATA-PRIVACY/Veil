@@ -25,7 +25,7 @@ html {
 
 body {
   margin: 0;
-  width: 420px;
+  width: clamp(360px, 90vw, 440px);
   border-radius: 22px;
   overflow: hidden;
   -webkit-clip-path: inset(0 round 22px);
@@ -233,45 +233,24 @@ body {
   font: 11px/1.45 "SF Mono", "JetBrains Mono", "Cascadia Mono", monospace;
 }
 
-.server-carousel {
-  margin-top: 8px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, #fcf8f0 0%, #f7efdf 100%);
-}
-
-.server-carousel-nav {
-  display: grid;
-  grid-template-columns: auto 1fr 1fr 1fr auto;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.nav-button {
-  width: 28px;
-  min-width: 28px;
-  padding: 0;
-  line-height: 1;
-}
-
-.server-carousel-viewport {
-  overflow: hidden;
-  border-radius: var(--radius-sm);
-  border: 1px solid #e4dac8;
-  background: #fffdf9;
-}
-
-.server-carousel-track {
+.tool-tabs-bar {
   display: flex;
-  width: 300%;
-  transform: translateX(calc(var(--panel-index, 0) * -33.333%));
-  transition: transform 240ms ease;
+  gap: 2px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+
+.tool-panel {
+  border: 1px solid #e4dac8;
+  border-radius: var(--radius-sm);
+  background: #fffdf9;
+  margin-bottom: 4px;
 }
 
 .server-tool-panel {
-  flex: 0 0 33.333%;
-  width: 33.333%;
   padding: 10px;
 }
 
@@ -522,19 +501,22 @@ button.compact.is-copied {
 }
 
 .tool-tab {
-  min-height: 28px;
-  padding: 4px 8px;
-  background: #ebdcc5;
-  border: 1px solid #d7c4a5;
-  color: #5a4a33;
-  font-size: 12px;
+  flex: 1;
+  padding: 5px 0;
+  font-size: 11.5px;
   font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
 }
 
 .tool-tab.is-active {
-  background: #2b241b;
-  border-color: #1f1b14;
-  color: #f9f5ec;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
 .message {
@@ -604,6 +586,18 @@ button.compact.is-copied {
   padding: 3px 10px;
   font-size: 11px;
   letter-spacing: 0.02em;
+}
+
+.beta-badge {
+  border: 1px solid #c89b68;
+  background: #fdf3e3;
+  color: #9a5f2a;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 /* ─── Secret input row (input + eye button) ─── */
@@ -1123,3 +1117,9 @@ button.compact.is-copied {
   color: var(--ink);
   background: transparent;
 }
+/* ─── Redaction Key ─── */
+.redaction-key-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.key-row { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+.key-token { font-family: monospace; font-size: 11px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; flex: 0 0 auto; }
+.key-arrow { color: var(--muted); flex: 0 0 auto; }
+.key-original { color: var(--text); flex: 1; word-break: break-all; }

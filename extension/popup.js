@@ -177,7 +177,7 @@ class SettingsManager {
     this.serverBusy = false;
     this.serverPhase = 'disconnected';
     this.terminalVisible = false;
-    this.serverToolsPanelIndex = 0;
+    this.serverToolsActivePanel = 'hfToken';
     this.serverState = {
       known: false,
       installed: true,
@@ -197,6 +197,11 @@ class SettingsManager {
     await this.loadSettings();
     await this.loadLocalSecrets();
     this.bindEvents();
+    const manifest = chrome.runtime.getManifest();
+    const versionEl = document.getElementById('versionBadge');
+    if (versionEl && manifest?.version) {
+      versionEl.textContent = `v${manifest.version}`;
+    }
     this.render();
     await this.loadPageStats();
     await this.refreshServerStatus();
@@ -259,6 +264,28 @@ class SettingsManager {
     }
 
     this.renderStats();
+    this.renderRedactionKey(response?.redactionKey ?? null);
+  }
+
+  renderRedactionKey(key) {
+    const card = document.getElementById('redactionKeyCard');
+    const list = document.getElementById('redactionKeyList');
+    if (!card || !list) return;
+    if (!key || Object.keys(key).length === 0) {
+      card.hidden = true;
+      return;
+    }
+    list.innerHTML = '';
+    Object.entries(key).forEach(([token, original]) => {
+      const row = document.createElement('div');
+      row.className = 'key-row';
+      const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      row.innerHTML = `<span class="key-token">${esc(token)}</span>`
+        + `<span class="key-arrow">→</span>`
+        + `<span class="key-original">${esc(original)}</span>`;
+      list.appendChild(row);
+    });
+    card.hidden = false;
   }
 
   loadLocalSecrets() {
@@ -377,12 +404,10 @@ class SettingsManager {
     document.getElementById('toggleTerminalButton').addEventListener('click', () => this.toggleTerminalVisibility());
     document.getElementById('copyInstallCommandButton').addEventListener('click', () => this.copyInstallCommand());
     document.getElementById('copyLogCommandButton').addEventListener('click', () => this.copyFromCode('logCommandText', 'copyLogCommandButton'));
-    document.getElementById('serverToolsPrevButton').addEventListener('click', () => this.setServerToolsPanel(this.serverToolsPanelIndex - 1));
-    document.getElementById('serverToolsNextButton').addEventListener('click', () => this.setServerToolsPanel(this.serverToolsPanelIndex + 1));
-    document.querySelectorAll('.tool-tab').forEach((button) => {
-      button.addEventListener('click', () => {
-        this.setServerToolsPanel(Number(button.dataset.panelIndex) || 0);
-      });
+    document.querySelector('.tool-tabs-bar').addEventListener('click', (event) => {
+      const tab = event.target.closest('.tool-tab');
+      if (!tab) return;
+      this.setServerToolsPanel(tab.dataset.panel);
     });
     document.getElementById('saveHfTokenButton').addEventListener('click', () => this.saveHfToken());
     document.getElementById('clearHfTokenButton').addEventListener('click', () => this.clearHfToken());
@@ -583,25 +608,18 @@ class SettingsManager {
     button.textContent = this.terminalVisible ? 'Hide Logs' : 'Show Logs';
   }
 
-  getServerToolsPanelCount() {
-    return Math.max(1, document.querySelectorAll('.server-tool-panel').length);
-  }
-
-  setServerToolsPanel(index) {
-    const count = this.getServerToolsPanelCount();
-    this.serverToolsPanelIndex = ((index % count) + count) % count;
+  setServerToolsPanel(panel) {
+    this.serverToolsActivePanel = typeof panel === 'string' && panel ? panel : 'hfToken';
     this.renderServerToolsPanel();
   }
 
   renderServerToolsPanel() {
-    const track = document.getElementById('serverToolsTrack');
-    if (track) {
-      track.style.setProperty('--panel-index', String(this.serverToolsPanelIndex));
-    }
-
-    document.querySelectorAll('.tool-tab').forEach((button) => {
-      const index = Number(button.dataset.panelIndex) || 0;
-      button.classList.toggle('is-active', index === this.serverToolsPanelIndex);
+    const active = this.serverToolsActivePanel || 'hfToken';
+    document.querySelectorAll('.tool-tab').forEach((tab) => {
+      tab.classList.toggle('is-active', tab.dataset.panel === active);
+    });
+    document.querySelectorAll('.tool-panel').forEach((panel) => {
+      panel.hidden = panel.id !== `${active}Panel`;
     });
   }
 
@@ -969,6 +987,10 @@ class SettingsManager {
   async startServer() {
     if (this.serverBusy) return;
     const hfToken = this.getInputHfToken() || this.localSecrets.hfToken || '';
+    // Warn early if HF token is missing — model download will fail without it
+    if (!hfToken) {
+      this.setMessage('\u26A0\uFE0F HF token not set — model download may fail. Add it in the Model Access Token tab.', true);
+    }
     this.setServerPhase('connecting');
     this.appendTerminalLine('Start requested. Initializing local GLiNER2 server...');
     this.setServerButtonsDisabled(true);
