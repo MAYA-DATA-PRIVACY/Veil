@@ -9,6 +9,7 @@ server process. It can also bootstrap dependencies on first run.
 import json
 import os
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -40,6 +41,7 @@ HF_HUB_CACHE = HF_HOME / "hub"
 TRANSFORMERS_CACHE = HF_HOME / "transformers"
 XDG_CACHE_HOME = CACHE_DIR / "xdg"
 RELEASE_INFO_FILE = RUNTIME_DIR / "bundle_release.json"
+PROCESS_STATE_FILE = RUNTIME_DIR / "server_process.json"
 
 
 def read_native_message() -> Dict[str, Any]:
@@ -72,6 +74,14 @@ def read_recent_logs(lines: int = 120) -> list[str]:
         all_lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
     except Exception:
         return []
+    process_state = read_process_state()
+    session_id = str(process_state.get("session_id") or "").strip()
+    if session_id:
+        marker = f"[server-session {session_id}]"
+        for index in range(len(all_lines) - 1, -1, -1):
+            if marker in all_lines[index]:
+                all_lines = all_lines[index:]
+                break
     keep = max(1, min(int(lines), 500))
     return all_lines[-keep:]
 
@@ -171,6 +181,24 @@ def load_state() -> Dict[str, Any]:
         return {}
 
 
+def read_process_state() -> Dict[str, Any]:
+    ensure_runtime_dirs()
+    if not PROCESS_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(PROCESS_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def clear_process_state() -> None:
+    ensure_runtime_dirs()
+    try:
+        PROCESS_STATE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def save_state(state: Dict[str, Any]) -> None:
     ensure_runtime_dirs()
     STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -184,6 +212,26 @@ def is_pid_running(pid: int | None) -> bool:
         return True
     except OSError:
         return False
+
+
+def is_port_open(host: str = "127.0.0.1", port: int = 8765) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def active_server_pid() -> int | None:
+    process_state = read_process_state()
+    process_pid = process_state.get("pid")
+    if is_pid_running(process_pid):
+        return int(process_pid)
+    state = load_state()
+    tracked_pid = state.get("pid")
+    if is_pid_running(tracked_pid):
+        return int(tracked_pid)
+    return None
 
 
 def wait_for_health(timeout: float = WAIT_SECONDS) -> bool:
@@ -278,6 +326,31 @@ def start_server(install_deps: bool, download_model: bool, hf_token: str = "", m
             **runtime_meta(),
         }
 
+    process_state = read_process_state()
+    process_pid = process_state.get("pid")
+    if is_pid_running(process_pid):
+        healthy = is_server_healthy()
+        return {
+            "success": True,
+            "running": True,
+            "healthy": healthy,
+            "pid": process_pid if healthy else None,
+            "message": "Server is already starting.",
+            **runtime_meta(),
+        }
+
+    if is_port_open():
+        state = load_state()
+        tracked_pid = state.get("pid")
+        return {
+            "success": True,
+            "running": True,
+            "healthy": False,
+            "pid": tracked_pid if is_pid_running(tracked_pid) else None,
+            "message": "Another local server is already bound to port 8765.",
+            **runtime_meta(),
+        }
+
     state = load_state()
     pid = state.get("pid")
     if is_pid_running(pid):
@@ -339,16 +412,17 @@ def start_server(install_deps: bool, download_model: bool, hf_token: str = "", m
         "running": True,
         "healthy": healthy,
         "pid": process.pid,
-        "message": "Server started.",
+        "message": "Server started." if healthy else "Server is starting.",
         **runtime_meta(),
     }
 
 
 def stop_server() -> Dict[str, Any]:
-    state = load_state()
-    pid = state.get("pid")
+    pid = active_server_pid()
 
     if not is_pid_running(pid):
+        clear_process_state()
+        save_state({})
         return {
             "success": True,
             "running": False,
@@ -374,6 +448,7 @@ def stop_server() -> Dict[str, Any]:
         except OSError:
             pass
 
+    clear_process_state()
     save_state({})
     return {
         "success": True,
@@ -385,18 +460,25 @@ def stop_server() -> Dict[str, Any]:
 
 
 def server_status() -> Dict[str, Any]:
+    process_state = read_process_state()
+    process_pid = process_state.get("pid")
+    process_running = is_pid_running(process_pid)
     state = load_state()
     pid = state.get("pid")
     tracked_running = is_pid_running(pid)
     healthy = is_server_healthy()
-    running = tracked_running or healthy
-    if pid and not tracked_running and not healthy:
+    port_open = is_port_open()
+    running = tracked_running or process_running or healthy or port_open
+    if not running:
+        clear_process_state()
+        save_state({})
+    elif pid and not tracked_running and not healthy and not port_open:
         save_state({})
     return {
         "success": True,
         "running": running,
         "healthy": healthy,
-        "pid": pid if tracked_running else None,
+        "pid": process_pid if process_running else (pid if tracked_running else None),
         "host": HOST_NAME,
         "logExists": LOG_FILE.exists(),
         **runtime_meta(),
