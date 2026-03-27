@@ -167,9 +167,13 @@ test.describe('Settings Persistence', () => {
         const { page } = extensionOptions;
 
         const toggle = page.locator('#enabledToggle');
-        await expect(toggle).toBeVisible();
+        const toggleControl = page.locator('label.opt-cb-toggle').filter({ has: toggle });
+        await expect(toggleControl).toBeVisible();
         const isChecked = await toggle.isChecked();
-        if (isChecked) await toggle.uncheck();
+        if (isChecked) {
+            await toggleControl.click();
+            await expect(toggle).not.toBeChecked();
+        }
         await page.waitForTimeout(500);
 
         await page.reload();
