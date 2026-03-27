@@ -5,6 +5,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${REPO_DIR}/.venv/bin/python"
 SERVICE_DIR="${HOME}/.config/systemd/user"
 SERVICE_FILE="${SERVICE_DIR}/privacy-shield-gliner.service"
+LOG_FILE="${REPO_DIR}/.runtime/gliner2_server.log"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Missing virtualenv python: ${PYTHON_BIN}"
@@ -15,6 +16,8 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
 fi
 
 mkdir -p "${SERVICE_DIR}"
+mkdir -p "${REPO_DIR}/.runtime"
+touch "${LOG_FILE}"
 
 cat > "${SERVICE_FILE}" <<EOF
 [Unit]
@@ -33,6 +36,8 @@ Environment=HF_HOME=${REPO_DIR}/.runtime/cache/hf
 Environment=HUGGINGFACE_HUB_CACHE=${REPO_DIR}/.runtime/cache/hf/hub
 Environment=TRANSFORMERS_CACHE=${REPO_DIR}/.runtime/cache/hf/transformers
 Environment=XDG_CACHE_HOME=${REPO_DIR}/.runtime/cache/xdg
+StandardOutput=append:${LOG_FILE}
+StandardError=append:${LOG_FILE}
 
 [Install]
 WantedBy=default.target

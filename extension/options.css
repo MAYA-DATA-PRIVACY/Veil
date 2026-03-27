@@ -325,6 +325,14 @@ html, body {
   color: #f4fff7;
 }
 
+.opt-update-block.is-current .opt-update-title {
+  color: #14532d;
+}
+
+.opt-update-block.is-current .opt-update-sub {
+  color: #4b5f53;
+}
+
 .opt-update-block.is-error .opt-update-pill {
   background: var(--md-error-cont);
   color: var(--md-on-error-cont);
@@ -654,6 +662,10 @@ html, body {
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.server-maintenance-card {
+  margin-top: 12px;
 }
 
 .opt-notice-icon {

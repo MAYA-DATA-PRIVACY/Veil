@@ -8,17 +8,28 @@ endpoint from local `.env`.
 """
 
 import argparse
+import atexit
 import json
 import os
+import socket
 import sys
 import threading
+import time
 import uuid
+import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error as urlerror
 from urllib import request as urlrequest
 from urllib.parse import urlparse
+
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("USE_TORCH", "0")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+warnings.filterwarnings("ignore", message=".*incorrect regex pattern.*")
+warnings.filterwarnings("ignore", message="PyTorch was not found.*")
 
 DEFAULT_MODEL = "fastino/gliner2-large-v1"
 MODEL_ALIASES = {
@@ -68,9 +79,19 @@ CHUNK_SIZE = 480
 CHUNK_OVERLAP = 80
 REPO_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO_DIR / ".env"
+RUNTIME_DIR = REPO_DIR / ".runtime"
+PROCESS_LOCK_FILE = RUNTIME_DIR / "server_process.lock"
+PROCESS_STATE_FILE = RUNTIME_DIR / "server_process.json"
 ANON_ENDPOINT_ENV_KEY = "MDP_ANONYMIZATION_ENDPOINT"
 DEFAULT_ANONYMIZATION_ENDPOINT = "https://app.mayadataprivacy.in/mdp/engine/anonymization"
 ANON_REQUEST_TIMEOUT_SEC = 10.0
+PROCESS_SESSION_ID = uuid.uuid4().hex[:10]
+PROCESS_LOCK_HANDLE = None
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 
 def normalize_model_name(model_name: str) -> str:
@@ -140,6 +161,99 @@ def resolve_anonymization_endpoint() -> str:
     if from_file:
         return from_file
     return DEFAULT_ANONYMIZATION_ENDPOINT
+
+
+def ensure_runtime_dir() -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_process_state() -> Dict[str, Any]:
+    ensure_runtime_dir()
+    if not PROCESS_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(PROCESS_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_process_state(state: Dict[str, Any]) -> None:
+    ensure_runtime_dir()
+    PROCESS_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def clear_process_state() -> None:
+    ensure_runtime_dir()
+    try:
+        existing = load_process_state()
+        if existing.get("pid") not in (None, os.getpid()):
+            return
+        PROCESS_STATE_FILE.unlink(missing_ok=True)
+    except Exception:
+        return
+
+
+def acquire_process_lock() -> bool:
+    global PROCESS_LOCK_HANDLE
+    ensure_runtime_dir()
+    handle = PROCESS_LOCK_FILE.open("a+")
+    try:
+        if os.name == "nt":
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return False
+    PROCESS_LOCK_HANDLE = handle
+    return True
+
+
+def release_process_lock() -> None:
+    global PROCESS_LOCK_HANDLE
+    handle = PROCESS_LOCK_HANDLE
+    PROCESS_LOCK_HANDLE = None
+    if handle is None:
+        return
+    try:
+        if os.name == "nt":
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
+def is_port_in_use(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def cleanup_process_runtime() -> None:
+    clear_process_state()
+    release_process_lock()
+
+
+def mark_process_state(status: str, **fields: Any) -> None:
+    payload = {
+        "pid": os.getpid(),
+        "session_id": PROCESS_SESSION_ID,
+        "status": status,
+        **fields,
+    }
+    save_process_state(payload)
+
+
+def log_session_marker(message: str) -> None:
+    print(f"[server-session {PROCESS_SESSION_ID}] {message}", flush=True)
 
 
 def extract_bearer_token(header_value: str) -> str:
@@ -889,6 +1003,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if not acquire_process_lock():
+        print("Another GLiNER2 server instance is already starting or running.", flush=True)
+        raise SystemExit(0)
+
+    atexit.register(cleanup_process_runtime)
+    mark_process_state(
+        "starting",
+        host=args.host,
+        port=args.port,
+        model=normalize_model_name(args.model),
+        started_at=int(time.time()),
+    )
+    log_session_marker("Server process starting")
     service = GLiNERService(args.model, args.threshold)
 
     if args.download_only:
@@ -899,6 +1026,11 @@ def main() -> None:
             raise SystemExit(2)
         print("Model download/cache complete")
         return
+
+    if is_port_in_use(args.host, args.port):
+        log_session_marker(f"Port {args.port} is already in use; exiting duplicate start request")
+        print(f"Another process is already listening on http://{args.host}:{args.port}", flush=True)
+        raise SystemExit(0)
 
     if not args.lazy_load:
         print("Preloading GLiNER2 ONNX model into memory...")
@@ -912,9 +1044,20 @@ def main() -> None:
 
     handler = make_handler(service, args.max_chars)
     server = ThreadingHTTPServer((args.host, args.port), handler)
+    mark_process_state(
+        "running",
+        host=args.host,
+        port=args.port,
+        model=normalize_model_name(args.model),
+        ready_at=int(time.time()),
+    )
+    log_session_marker("Server ready")
     print(f"GLiNER2 ONNX local server listening on http://{args.host}:{args.port}")
     print("Endpoints: GET /health, POST /detect, POST /anonymize, POST /classify, POST /structure")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        cleanup_process_runtime()
 
 
 if __name__ == "__main__":
