@@ -173,7 +173,11 @@ test.describe('Server Status (with mock server)', () => {
 
     test('regex runtime note reflects AI-only vs AI-plus-regex states', async ({ extensionOptions }) => {
         const { page } = extensionOptions;
-        await page.waitForFunction(() => Boolean(window.__VEIL_SETTINGS_MANAGER__));
+        await page.waitForFunction(() => {
+            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
             const sm = window.__VEIL_SETTINGS_MANAGER__;
             if (sm.serverPollTimer) {
@@ -246,7 +250,11 @@ test.describe('Release Status UX', () => {
     test('shows backend already updated even when the extension build is behind', async ({ extensionOptions }) => {
         const { page } = extensionOptions;
 
-        await page.waitForFunction(() => Boolean(window.__VEIL_SETTINGS_MANAGER__));
+        await page.waitForFunction(() => {
+            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
             const sm = window.__VEIL_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
@@ -281,7 +289,11 @@ test.describe('Release Status UX', () => {
     test('surfaces missing backend metadata as a refresh step instead of a false outdated warning', async ({ extensionOptions }) => {
         const { page } = extensionOptions;
 
-        await page.waitForFunction(() => Boolean(window.__VEIL_SETTINGS_MANAGER__));
+        await page.waitForFunction(() => {
+            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
             const sm = window.__VEIL_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
@@ -317,7 +329,11 @@ test.describe('Release Status UX', () => {
     test('keeps the local server verified when GitHub release lookup fails but bundled metadata is known', async ({ extensionOptions }) => {
         const { page } = extensionOptions;
 
-        await page.waitForFunction(() => Boolean(window.__VEIL_SETTINGS_MANAGER__));
+        await page.waitForFunction(() => {
+            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
             const sm = window.__VEIL_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
@@ -348,7 +364,11 @@ test.describe('Release Status UX', () => {
     test('shows backend version unknown instead of a generic update failure when both GitHub and local metadata are unavailable', async ({ extensionOptions }) => {
         const { page } = extensionOptions;
 
-        await page.waitForFunction(() => Boolean(window.__VEIL_SETTINGS_MANAGER__));
+        await page.waitForFunction(() => {
+            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
             const sm = window.__VEIL_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
