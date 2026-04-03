@@ -93,7 +93,7 @@ class SettingsManager {
     this.statsPollTimer = null;
     this.messageTimer = null;
     this.copyButtonTimers = new Map();
-    this.init();
+    this._initPromise = this.init();
   }
 
   async init() {
