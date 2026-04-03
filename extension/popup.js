@@ -2004,9 +2004,17 @@ document.addEventListener('DOMContentLoaded', () => {
     );
     const activate = () => {
       if (!sections.length) return;
+      const lastSection = sections[sections.length - 1];
+      const lastSectionTop = getSectionTop(lastSection);
+      const viewportBottom = mainEl.scrollTop + mainEl.clientHeight;
+      if (lastSectionTop <= viewportBottom - 24) {
+        setActive(getSectionName(lastSection.id));
+        return;
+      }
+
       const bottomSlack = Math.max(24, getScrollOffset());
       if (mainEl.scrollTop + mainEl.clientHeight >= mainEl.scrollHeight - bottomSlack) {
-        setActive(getSectionName(sections[sections.length - 1].id));
+        setActive(getSectionName(lastSection.id));
         return;
       }
 
