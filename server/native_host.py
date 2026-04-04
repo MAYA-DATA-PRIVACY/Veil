@@ -27,7 +27,7 @@ HOST_NAME = "com.veil.gliner.server"
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8765
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/health"
-WAIT_SECONDS = 18
+WAIT_SECONDS = 30
 MODEL_ENV_VAR = "GLINER2_MODEL"
 PINNED_UV_VERSION = "0.10.7"
 PINNED_PYTHON_VERSION = "3.11.11"
@@ -516,7 +516,23 @@ def ensure_dependencies() -> None:
         raise RuntimeError(f"Dependency verification failed:\n{details}")
 
 
+def is_model_present() -> bool:
+    """Check if model files already exist on disk (bundled or HF cache)."""
+    required = ("config.json", "gliner2_config.json")
+    bundled = REPO_DIR / ".runtime" / "cache" / "model" / "model"
+    if bundled.is_dir() and all((bundled / f).exists() for f in required):
+        return True
+    hub_dir = HF_HUB_CACHE / "models--lmo3--gliner2-large-v1-onnx" / "snapshots"
+    if hub_dir.is_dir():
+        for snap in hub_dir.iterdir():
+            if snap.is_dir() and all((snap / f).exists() for f in required):
+                return True
+    return False
+
+
 def ensure_model_downloaded(model_id: str = "", extra_env: Dict[str, str] | None = None) -> None:
+    if is_model_present():
+        return
     cmd = [str(VENV_PYTHON), str(SCRIPT_PATH), "--download-only"]
     if str(model_id or "").strip():
         cmd.extend(["--model", str(model_id).strip()])
@@ -610,14 +626,37 @@ def start_server(
             **runtime_meta(),
         }
 
-    if status.get("portConflict"):
+    # If the port is already in use (e.g. autostart service loading the model),
+    # wait for it to become healthy instead of launching a second server.
+    if is_port_open():
+        healthy = wait_for_health()
+        if healthy:
+            return {
+                "success": True,
+                "running": True,
+                "healthy": True,
+                "pid": status.get("pid"),
+                "message": "Server started.",
+                **runtime_meta(),
+            }
+        # Port open but never became healthy — true conflict with a non-Veil process
+        if status.get("portConflict"):
+            return {
+                "success": True,
+                "running": False,
+                "healthy": False,
+                "pid": None,
+                "portConflict": True,
+                "message": "Port 8765 is already in use by another local process. Veil will not stop it automatically.",
+                **runtime_meta(),
+            }
+        # Port open, not healthy, but looks like our own server still loading
         return {
             "success": True,
-            "running": False,
+            "running": True,
             "healthy": False,
-            "pid": None,
-            "portConflict": True,
-            "message": "Port 8765 is already in use by another local process. Veil will not stop it automatically.",
+            "pid": status.get("pid"),
+            "message": "Server is starting (model loading).",
             **runtime_meta(),
         }
 
@@ -663,7 +702,7 @@ def start_server(
         "running": True,
         "healthy": healthy,
         "pid": process.pid,
-        "message": "Server started." if healthy else "Server is starting.",
+        "message": "Server started." if healthy else "Server is starting (model loading).",
         **runtime_meta(),
     }
 
