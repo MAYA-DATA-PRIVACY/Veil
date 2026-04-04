@@ -24,7 +24,7 @@ def load_module():
     return module
 
 
-def test_build_stage_copies_runtime_and_writes_model_asset_metadata(tmp_path, monkeypatch):
+def test_build_stage_copies_installer_scripts_and_writes_model_asset_metadata(tmp_path, monkeypatch):
     module = load_module()
     repo_root = tmp_path / "repo"
     dist_dir = repo_root / "dist"
@@ -40,9 +40,9 @@ def test_build_stage_copies_runtime_and_writes_model_asset_metadata(tmp_path, mo
     server_dir.mkdir()
     (server_dir / "native_host.py").write_text("print('veil')\n", encoding="utf-8")
 
-    venv_python = repo_root / ".venv" / "Scripts" / "python.exe"
-    venv_python.parent.mkdir(parents=True)
-    venv_python.write_text("", encoding="utf-8")
+    installers_dir = repo_root / "scripts" / "installers"
+    installers_dir.mkdir(parents=True)
+    (installers_dir / "install.ps1").write_text("Write-Host 'veil'\n", encoding="utf-8")
 
     monkeypatch.setattr(module, "ROOT", repo_root)
     monkeypatch.setattr(module, "DIST", dist_dir)
@@ -54,18 +54,19 @@ def test_build_stage_copies_runtime_and_writes_model_asset_metadata(tmp_path, mo
         "COPY_PATHS",
         [
             repo_root / "server",
+            repo_root / "scripts" / "installers",
             repo_root / "pyproject.toml",
             repo_root / "uv.lock",
             repo_root / ".python-version",
             repo_root / "LICENSE",
-            repo_root / ".venv",
         ],
     )
 
     module.build_stage()
 
     assert (module.STAGE_DIR / "server" / "native_host.py").exists()
-    assert (module.STAGE_DIR / ".venv" / "Scripts" / "python.exe").exists()
+    assert (module.STAGE_DIR / "scripts" / "installers" / "install.ps1").exists()
+    assert not (module.STAGE_DIR / ".venv").exists()
     assert not (module.STAGE_DIR / ".runtime" / "cache" / "model" / "model" / "config.json").exists()
 
     release_meta = json.loads((module.STAGE_DIR / ".runtime" / "bundle_release.json").read_text(encoding="utf-8"))
@@ -103,7 +104,8 @@ def test_inno_setup_script_uses_branding_extension_id_capture_and_model_download
     assert "WizardImageFile=assets\\veil-wizard.bmp" in script
     assert "WizardSmallImageFile=assets\\veil-wizard-small.bmp" in script
     assert "CreateInputQueryPage" in script
-    assert "install_windows.bat" in script
+    assert "scripts\\installers\\install.ps1" in script
+    assert "-UseExistingBundle" in script
     assert "/EXTENSION_ID=<id>" in script
     assert "if GetCliExtensionId() <> '' then" in script
     assert "CreateDownloadPage" in script

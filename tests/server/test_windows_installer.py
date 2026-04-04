@@ -34,6 +34,16 @@ def test_install_veil_starts_the_server_now_and_treats_autostart_as_a_warning():
     assert "Start-VeilServerNow -InstallDir $InstallDir | Out-Null" in script
 
 
+def test_install_veil_can_finalize_the_bundle_already_copied_by_windows_setup():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert "[switch]$UseExistingBundle" in script
+    assert "function Assert-VeilBundledPayload" in script
+    assert 'Write-Host "Using the Veil files already installed by VeilSetup.exe..."' in script
+    assert 'if ($UseExistingBundle)' in script
+    assert 'Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$assetName" -OutFile $archivePath' in script
+
+
 def test_install_veil_stamps_release_metadata_from_the_bundled_file_without_api_calls():
     script = INSTALLER_PATH.read_text(encoding="utf-8")
 
