@@ -9,9 +9,9 @@ Date of Birth: 04/18/1992
 SSN: 123-45-6789
 Credit Card: 4111 1111 1111 1111
 
-OpenAI API Key: sk-proj-abcDEF1234567890ghijKLMN_opqrstuVWXYZ
-AWS Access Key: AKIAIOSFODNN7EXAMPLE
-GitHub Token: github_pat_11AABBCCDDEEFF00112233445566778899
+OpenAI API Key: sk-proj-FAKE_TEST_DUMMY_000000000000000000000
+AWS Access Key: AKIAFAKEKEY0DUMMY0TST
+GitHub Token: github_pat_FAKE0TEST0DUMMY000000000000000000
 JWT Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature
 IPv4 Address: 192.168.34.21
 IPv6 Address: 2001:0db8:85a3:0000:0000:8a2e:0370:7334
@@ -29,9 +29,9 @@ Employee ID: TN-EMP-20458
 Device ID: ANDR-98X2-KL45-PL09
 Session ID: SESS-a82f91d7c6b34e2f
 
-Slack Token: xoxb-1234567890-abcdefghij-ABCDEFGHIJ
+Slack Token: xoxb-0000000000-FAKETESTDM-DUMMYTOKEN
 Stripe Key: stripe_test_demo_placeholder_not_real
-Google API Key: AIzaSyD1234567890abcdefghijklmnopqrstuv
+Google API Key: AIzaFAKE_DUMMY_TEST_KEY_not_real_x0x0x0
 Twilio Key: twilio_demo_placeholder_not_real
 Maya API Key: mdp_test|fakeRegexSmokeToken1234567890ABCD|T1
 Connection String: postgres://admin:s3cret@db.example.com:5432/production
