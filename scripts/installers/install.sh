@@ -276,8 +276,9 @@ MODEL_ARCHIVE="${TMP_DIR}/${MODEL_ASSET}"
 MODEL_DEST="${INSTALL_DIR}/.runtime/cache/model"
 
 echo
-echo "Downloading GLiNER2 model..."
-if curl -fsSL "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>/dev/null; then
+echo "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
+if curl -fL --progress-bar "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>&1; then
+  echo "Extracting model..."
   mkdir -p "${MODEL_DEST}"
   tar -xzf "${MODEL_ARCHIVE}" -C "${MODEL_DEST}"
   echo "Model extracted to ${MODEL_DEST}"

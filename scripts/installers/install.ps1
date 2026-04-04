@@ -453,10 +453,12 @@ function Install-Veil {
         $modelDest = Join-Path $InstallDir ".runtime\cache\model"
 
         Write-Host ""
-        Write-Host "Downloading GLiNER2 model..."
+        Write-Host "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
         $modelDownloaded = $false
         try {
-            Invoke-WebRequest -Uri $modelUrl -OutFile $modelArchive -UseBasicParsing -ErrorAction Stop
+            # Use .NET WebClient for large downloads — Invoke-WebRequest is very slow for big files
+            $wc = New-Object System.Net.WebClient
+            $wc.DownloadFile($modelUrl, $modelArchive)
             New-Item -ItemType Directory -Force -Path $modelDest | Out-Null
             tar -xzf $modelArchive -C $modelDest
             Write-Host "Model extracted to $modelDest"
