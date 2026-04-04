@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.5] - 2026-04-03
+## [1.2.5] - 2026-04-04
+
+### Security Hardening
+
+- Added Content-Security-Policy (`script-src 'self'; object-src 'none'`) to the extension manifest, blocking eval, inline scripts, and object embeds in all extension pages.
+- Fixed an XSS vector in `textToHtmlPreserveLayout` where code-block and inline-code content bypassed HTML escaping before innerHTML insertion in contentEditable elements.
+- Added a ReDoS guard (1 000-match cap) to the custom-pattern regex loop in the background service worker, preventing catastrophic backtracking from user-defined patterns.
+- Replaced inline `onerror` event handlers in popup and options HTML with CSP-safe JavaScript listeners.
+- Removed raw PII entries from the server-side anonymization request log; only `entries_count` is logged now.
+- Added length limits on custom-pattern fields: label ≤ 64, regex ≤ 500, replacement ≤ 200 characters.
+- Added HTTPS-scheme validation on release-link URLs sourced from the GitHub API before assigning them to anchor `href` attributes.
+- Added a sender-tab guard on the background message handler, rejecting messages that don't originate from a content script in a real tab.
+- Replaced realistic-looking dummy API keys in test fixtures with clearly fake placeholders to avoid git secret-scanner false positives.
+
+### Installer Improvements
+
+- Windows install is now one-command: `powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id <ID>` or `$env:VEIL_EXTENSION_ID='<ID>'; irm .../install.ps1 | iex`.
+- Windows uninstall is now one-command: `powershell -ExecutionPolicy Bypass -File uninstall.ps1` or `irm .../uninstall.ps1 | iex`.
+- Improved uninstall messaging to confirm removal of server, venv, models, and all cached data.
 
 ### Popup and Onboarding Polish
 

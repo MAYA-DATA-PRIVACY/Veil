@@ -364,6 +364,7 @@ function Sync-VeilRuntime {
 }
 
 function Install-Veil {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ExtensionId,
@@ -460,4 +461,43 @@ function Install-Veil {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force
         }
     }
+}
+
+# ── Auto-execute when run directly (not dot-sourced) ──
+# Usage:
+#   One-command install (PowerShell):
+#     powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id YOUR_EXTENSION_ID
+#   Or via irm:
+#     $env:VEIL_EXTENSION_ID='YOUR_EXTENSION_ID'; irm https://github.com/Maya-Data-Privacy/Veil/releases/latest/download/install.ps1 | iex
+if ($MyInvocation.InvocationName -ne '.') {
+    $extId = $null
+    $installDir = $null
+    $recreate = $false
+
+    for ($i = 0; $i -lt $args.Count; $i++) {
+        switch ($args[$i]) {
+            '--extension-id' { $extId = $args[++$i] }
+            '-ExtensionId'   { $extId = $args[++$i] }
+            '--install-dir'  { $installDir = $args[++$i] }
+            '-InstallDir'    { $installDir = $args[++$i] }
+            '--recreate-venv' { $recreate = $true }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($extId)) {
+        $extId = $env:VEIL_EXTENSION_ID
+    }
+
+    if ([string]::IsNullOrWhiteSpace($extId)) {
+        Write-Host "Usage: powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id <EXTENSION_ID>" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Or set the environment variable before piping:" -ForegroundColor Yellow
+        Write-Host '  $env:VEIL_EXTENSION_ID="YOUR_ID"; irm .../install.ps1 | iex' -ForegroundColor Cyan
+        exit 1
+    }
+
+    $params = @{ ExtensionId = $extId }
+    if (-not [string]::IsNullOrWhiteSpace($installDir)) { $params.InstallDir = $installDir }
+    if ($recreate) { $params.RecreateVenv = $true }
+    Install-Veil @params
 }

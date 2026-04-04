@@ -1011,12 +1011,15 @@ class GLiNERDetector {
           return;
         }
 
+        const MAX_CUSTOM_MATCHES = 1000;
+        let matchCount = 0;
         let match;
         while ((match = regex.exec(text)) !== null) {
           if (!match[0]) {
             regex.lastIndex += 1;
             continue;
           }
+          if (++matchCount > MAX_CUSTOM_MATCHES) break; // ReDoS guard
           detections.push({
             text: match[0],
             label,
@@ -1242,6 +1245,9 @@ async function handleServerControl(command, options = {}) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Only accept messages from content scripts running in real tabs
+  if (!sender?.tab?.id && request.action !== 'getServerStatus') return false;
+
   if (request.action === 'detectPIIFast') {
     try {
       const detections = detector.detectFastLocalProtection(request.text, request.options);
