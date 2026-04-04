@@ -3274,10 +3274,17 @@ class VeilContentController {
     const redactionKey = redactionKeyMap.size
       ? Object.fromEntries([...redactionKeyMap])
       : null;
+    // Use cumulative pageStats so counts survive element cleanup (e.g. after
+    // the chat app clears the input field on submit).  Fall back to live
+    // stats when the cumulative counters haven't been populated yet.
     const liveStats = this.computeLiveStats();
+    const stats = {
+      detections: Math.max(this.pageStats.detections, liveStats.detections),
+      redactions: Math.max(this.pageStats.redactions, liveStats.redactions)
+    };
     sendResponse({
       success: true,
-      stats: liveStats,
+      stats,
       redactionKey
     });
     return false;
@@ -3441,7 +3448,9 @@ class VeilContentController {
   // Build the popup/settings redaction key from currently active Veil states only.
   // Veil must never rewrite provider-owned thread history with original values.
   buildVisibleRedactionKey() {
-    const map = new Map();
+    // Start with persisted ledger so entries survive after the chat app
+    // clears the input field on submit.
+    const map = new Map(this.responseRestoreLedger);
     this.redactions.forEach((state) => {
       if (!state?.items?.length) return;
       state.items.forEach((item) => {
