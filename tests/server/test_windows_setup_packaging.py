@@ -109,6 +109,7 @@ def test_inno_setup_script_uses_branding_extension_id_capture_and_model_download
     assert "CreateDownloadPage" in script
     assert "CreateExtractionPage" in script
     assert "{#MyModelAssetUrl}" in script
+    assert "Result := AddBackslash(GetTemporaryExtractDir()) + 'veil-model-fp16.tar';" in script
     assert "Type: filesandordirs; Name: \"{app}\\.runtime\"" in script
 
 
@@ -117,4 +118,5 @@ def test_popup_windows_install_command_prefers_stable_setup_exe():
 
     assert "VeilSetup.exe" in script
     assert "/EXTENSION_ID=${chrome.runtime.id}" in script
+    assert "-Command '$installer = Join-Path $env:TEMP ''VeilSetup.exe'';" in script
     assert "install.ps1" in script

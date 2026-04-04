@@ -157,7 +157,7 @@ end;
 
 function GetExtractedTarPath(): String;
 begin
-  Result := ExpandConstant('{tmp}\veil-model-fp16.tar');
+  Result := AddBackslash(GetTemporaryExtractDir()) + 'veil-model-fp16.tar';
 end;
 
 function GetTemporaryExtractDir(): String;

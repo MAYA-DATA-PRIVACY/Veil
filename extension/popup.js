@@ -739,7 +739,7 @@ class SettingsManager {
   getNativeHostInstallCommand() {
     const platformOs = this.platformOs || this.detectPlatformOsFallback();
     if (platformOs === 'win') {
-      return `powershell -NoProfile -ExecutionPolicy Bypass -Command "$installer = Join-Path $env:TEMP 'VeilSetup.exe'; Invoke-WebRequest -UseBasicParsing -Uri '${VEIL_RELEASE_BASE_URL}/VeilSetup.exe' -OutFile $installer; Start-Process -FilePath $installer -ArgumentList '/EXTENSION_ID=${chrome.runtime.id}' -Wait"`;
+      return `powershell -NoProfile -ExecutionPolicy Bypass -Command '$installer = Join-Path $env:TEMP ''VeilSetup.exe''; Invoke-WebRequest -UseBasicParsing -Uri ''${VEIL_RELEASE_BASE_URL}/VeilSetup.exe'' -OutFile $installer; Start-Process -FilePath $installer -ArgumentList ''/EXTENSION_ID=${chrome.runtime.id}'' -Wait'`;
     }
     return `curl -fsSL ${VEIL_RELEASE_BASE_URL}/install.sh | bash -s -- --extension-id ${chrome.runtime.id}`;
   }
