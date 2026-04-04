@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.6] - 2026-04-04
+
+### Bug Fixes
+
+- Fixed sender-tab guard blocking popup and settings page communication with the background service worker, which caused "Active (Setup Needed)", "Native host missing", and "message port closed" errors even when the server was installed and running.
+- Fixed popup status subtitle flickering by removing the competing `renderStats` override on the status subtitle element — server status is now solely managed by `renderServerStatus`.
+
+---
+
 ## [1.2.5] - 2026-04-04
 
 ### Security Hardening
