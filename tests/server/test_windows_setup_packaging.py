@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import tarfile
 from pathlib import Path
 
 
@@ -25,7 +24,7 @@ def load_module():
     return module
 
 
-def test_build_stage_copies_runtime_and_extracts_model(tmp_path, monkeypatch):
+def test_build_stage_copies_runtime_and_writes_model_asset_metadata(tmp_path, monkeypatch):
     module = load_module()
     repo_root = tmp_path / "repo"
     dist_dir = repo_root / "dist"
@@ -45,19 +44,11 @@ def test_build_stage_copies_runtime_and_extracts_model(tmp_path, monkeypatch):
     venv_python.parent.mkdir(parents=True)
     venv_python.write_text("", encoding="utf-8")
 
-    model_src = tmp_path / "model-src" / "model"
-    model_src.mkdir(parents=True)
-    (model_src / "config.json").write_text("{}", encoding="utf-8")
-    (model_src / "gliner2_config.json").write_text("{}", encoding="utf-8")
-    with tarfile.open(dist_dir / "veil-model-fp16.tar.gz", "w:gz") as archive:
-        archive.add(model_src, arcname="model")
-
     monkeypatch.setattr(module, "ROOT", repo_root)
     monkeypatch.setattr(module, "DIST", dist_dir)
     monkeypatch.setattr(module, "STAGING_ROOT", dist_dir / "windows-installer")
     monkeypatch.setattr(module, "STAGE_DIR", dist_dir / "windows-installer" / "stage")
     monkeypatch.setattr(module, "METADATA_ISS", dist_dir / "windows-installer" / "metadata.iss")
-    monkeypatch.setattr(module, "MODEL_ARCHIVE", dist_dir / "veil-model-fp16.tar.gz")
     monkeypatch.setattr(
         module,
         "COPY_PATHS",
@@ -75,7 +66,7 @@ def test_build_stage_copies_runtime_and_extracts_model(tmp_path, monkeypatch):
 
     assert (module.STAGE_DIR / "server" / "native_host.py").exists()
     assert (module.STAGE_DIR / ".venv" / "Scripts" / "python.exe").exists()
-    assert (module.STAGE_DIR / ".runtime" / "cache" / "model" / "model" / "config.json").exists()
+    assert not (module.STAGE_DIR / ".runtime" / "cache" / "model" / "model" / "config.json").exists()
 
     release_meta = json.loads((module.STAGE_DIR / ".runtime" / "bundle_release.json").read_text(encoding="utf-8"))
     assert release_meta["tag"] == "v9.9.9"
@@ -83,11 +74,15 @@ def test_build_stage_copies_runtime_and_extracts_model(tmp_path, monkeypatch):
 
     metadata_iss = module.METADATA_ISS.read_text(encoding="utf-8")
     assert '#define MyAppVersion "9.9.9"' in metadata_iss
+    assert '#define MyReleaseTag "v9.9.9"' in metadata_iss
+    assert '#define MyModelAssetName "veil-model-fp16.tar.gz"' in metadata_iss
+    assert '#define MyModelAssetUrl "https://github.com/Maya-Data-Privacy/Veil/releases/download/v9.9.9/veil-model-fp16.tar.gz"' in metadata_iss
     assert '#define MyStageDir "' in metadata_iss
 
 
 def test_release_workflow_builds_and_publishes_windows_setup():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    windows_job = workflow.split("build-windows-installer:", 1)[1].split("publish-release-assets:", 1)[0]
 
     assert "build-windows-installer:" in workflow
     assert "runs-on: windows-latest" in workflow
@@ -97,9 +92,11 @@ def test_release_workflow_builds_and_publishes_windows_setup():
     assert "actions/download-artifact@v5" in workflow
     assert "dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" in workflow
     assert "dist/VeilSetup.exe" in workflow
+    assert "scripts/build_model_bundle.py" not in windows_job
+    assert "dist/veil-model-fp16.tar.gz" in workflow
 
 
-def test_inno_setup_script_uses_branding_and_extension_id_capture():
+def test_inno_setup_script_uses_branding_extension_id_capture_and_model_download_pages():
     script = ISS_PATH.read_text(encoding="utf-8")
 
     assert "SetupIconFile=assets\\veil-installer.ico" in script
@@ -109,6 +106,10 @@ def test_inno_setup_script_uses_branding_and_extension_id_capture():
     assert "install_windows.bat" in script
     assert "/EXTENSION_ID=<id>" in script
     assert "if GetCliExtensionId() <> '' then" in script
+    assert "CreateDownloadPage" in script
+    assert "CreateExtractionPage" in script
+    assert "{#MyModelAssetUrl}" in script
+    assert "Type: filesandordirs; Name: \"{app}\\.runtime\"" in script
 
 
 def test_popup_windows_install_command_prefers_stable_setup_exe():

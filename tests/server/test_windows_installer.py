@@ -42,6 +42,15 @@ def test_install_veil_stamps_release_metadata_from_the_bundled_file_without_api_
     assert 'Invoke-RestMethod -UseBasicParsing -Uri $releaseApi' not in script
 
 
+def test_install_veil_reuses_existing_model_cache_before_downloading_again():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert "function Test-VeilModelPresent" in script
+    assert "function Test-VeilModelFilesPresent" in script
+    assert 'if (Test-VeilModelPresent -InstallDir $InstallDir)' in script
+    assert 'Write-Host "Existing GLiNER2 model cache found; skipping download."' in script
+
+
 def test_windows_autostart_script_prints_powershell_safe_manual_start_guidance():
     script = AUTOSTART_INSTALLER_PATH.read_text(encoding="utf-8")
 

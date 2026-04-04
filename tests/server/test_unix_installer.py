@@ -26,6 +26,14 @@ def test_installer_stamps_installed_release_metadata_from_the_bundled_file():
     assert 'curl -fsSL "${RELEASE_API}"' not in script
 
 
+def test_unix_installer_reuses_existing_model_cache_before_downloading_again():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert "model_cache_present()" in script
+    assert 'if model_cache_present; then' in script
+    assert 'echo "Existing GLiNER2 model cache found; skipping download."' in script
+
+
 def test_uninstaller_waits_for_process_shutdown_and_retries_directory_removal():
     script = UNINSTALLER_PATH.read_text(encoding="utf-8")
 

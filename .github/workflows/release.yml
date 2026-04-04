@@ -175,10 +175,6 @@ jobs:
         shell: pwsh
         run: uv sync --frozen --no-dev --no-install-project
 
-      - name: Build model bundle (fp16 ONNX from HuggingFace)
-        shell: pwsh
-        run: uv run --no-sync python scripts/build_model_bundle.py
-
       - name: Build Windows installer staging
         env:
           VEIL_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}

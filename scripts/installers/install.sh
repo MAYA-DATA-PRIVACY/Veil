@@ -83,6 +83,34 @@ remove_install_contents() {
   find "${install_dir}" -mindepth 1 -maxdepth 1 ! -name ".venv" ! -name ".runtime" ! -name ".env" -exec rm -rf {} +
 }
 
+model_files_present_in_dir() {
+  local model_dir="$1"
+  [[ -d "${model_dir}" ]] || return 1
+  [[ -f "${model_dir}/config.json" ]] || return 1
+  [[ -f "${model_dir}/gliner2_config.json" ]] || return 1
+}
+
+model_cache_present() {
+  local bundled_dir="${INSTALL_DIR}/.runtime/cache/model/model"
+  local snapshots_dir="${INSTALL_DIR}/.runtime/cache/hf/hub/models--lmo3--gliner2-large-v1-onnx/snapshots"
+  local snapshot_dir
+
+  if model_files_present_in_dir "${bundled_dir}"; then
+    return 0
+  fi
+
+  if [[ -d "${snapshots_dir}" ]]; then
+    for snapshot_dir in "${snapshots_dir}"/*; do
+      [[ -d "${snapshot_dir}" ]] || continue
+      if model_files_present_in_dir "${snapshot_dir}"; then
+        return 0
+      fi
+    done
+  fi
+
+  return 1
+}
+
 stamp_release_metadata() {
   local release_info_path="$1"
   local target_path="$2"
@@ -276,15 +304,19 @@ MODEL_ARCHIVE="${TMP_DIR}/${MODEL_ASSET}"
 MODEL_DEST="${INSTALL_DIR}/.runtime/cache/model"
 
 echo
-echo "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
-if curl -fL --progress-bar "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>&1; then
-  echo "Extracting model..."
-  mkdir -p "${MODEL_DEST}"
-  tar -xzf "${MODEL_ARCHIVE}" -C "${MODEL_DEST}"
-  echo "Model extracted to ${MODEL_DEST}"
+if model_cache_present; then
+  echo "Existing GLiNER2 model cache found; skipping download."
 else
-  echo "Bundled model not found in release; downloading from HuggingFace Hub..."
-  "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/server/gliner2_server.py" --download-only || echo "Warning: model download failed. It will download on first use."
+  echo "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
+  if curl -fL --progress-bar "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>&1; then
+    echo "Extracting model..."
+    mkdir -p "${MODEL_DEST}"
+    tar -xzf "${MODEL_ARCHIVE}" -C "${MODEL_DEST}"
+    echo "Model extracted to ${MODEL_DEST}"
+  else
+    echo "Bundled model not found in release; downloading from HuggingFace Hub..."
+    "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/server/gliner2_server.py" --download-only || echo "Warning: model download failed. It will download on first use."
+  fi
 fi
 
 if [[ "${PLATFORM}" == "linux" ]]; then

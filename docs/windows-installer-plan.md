@@ -3,12 +3,14 @@
 ## Goal
 
 Ship a branded `VeilSetup.exe` release asset for Windows that installs the
-local Veil backend offline, keeps the bundled GLiNER2 model available on disk,
-and registers the native messaging host for the user's Veil extension.
+local Veil backend, downloads the GLiNER2 model from the matching GitHub
+Release only when needed, and registers the native messaging host for the
+user's Veil extension.
 
 ## Why This Plan Fits Veil
 
-- Veil must keep the local GLiNER2 model available after install.
+- Veil must keep the local GLiNER2 model available after install, but should
+  reuse an already valid cache across updates.
 - The current PowerShell installer assembles too much at user install time:
   runtime bootstrap, dependency sync, model download, native-host setup, and
   autostart registration.
@@ -20,12 +22,14 @@ and registers the native messaging host for the user's Veil extension.
 Phase 1 focuses on the shippable path we can build from this repository now:
 
 1. Build a Windows-only staged payload on `windows-latest`.
-2. Bundle `.venv`, server files, release metadata, and the extracted model into
-   an offline staging directory.
-3. Compile a branded Inno Setup installer from that stage.
+2. Bundle `.venv`, server files, and release metadata into the installer
+   staging directory, but keep the model as a separate release asset.
+3. Compile a branded Inno Setup bootstrap installer from that stage.
 4. Accept `/EXTENSION_ID=<id>` from the extension-generated install command,
    and only prompt during install if that argument is missing.
-5. Publish `VeilSetup-<version>.exe` as a GitHub Release asset beside the raw
+5. During setup, reuse an existing valid model cache if present; otherwise
+   download the model asset with progress and extract it into the local cache.
+6. Publish `VeilSetup-<version>.exe` as a GitHub Release asset beside the raw
    backend and model bundles, plus a stable `VeilSetup.exe` latest-download
    alias for extension-generated commands.
 
@@ -33,11 +37,13 @@ Phase 1 focuses on the shippable path we can build from this repository now:
 
 - Veil branding on setup binary and wizard surfaces.
 - Per-user install into `%LOCALAPPDATA%\Veil`.
-- Offline payload with no runtime `uv sync`.
+- Backend payload with no runtime `uv sync`.
+- Model download step with native installer progress on first install only.
+- Update-safe cache reuse so repeat installs do not redownload the model.
 - Extension-generated Windows command downloads `VeilSetup.exe` and passes
   `/EXTENSION_ID=...`, with prompt fallback only when needed.
 - Deterministic uninstall that removes the native host and autostart entries
-  before deleting files.
+  before deleting files, including the runtime-downloaded model cache.
 
 ## Follow-Up Phases
 

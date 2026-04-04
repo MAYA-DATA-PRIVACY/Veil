@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a branded offline `VeilSetup.exe` Windows installer flow that stages the bundled local runtime, server files, and extracted GLiNER2 model before compiling a production-style setup binary on the Windows release runner.
 - Updated the Windows install UX so Veil can generate a command that downloads the latest `VeilSetup.exe` release asset and passes `/EXTENSION_ID=<chrome.runtime.id>`, while the installer only falls back to a manual extension-ID prompt when that argument is missing.
 - Added a stable `VeilSetup.exe` latest-release alias alongside the versioned installer asset so extension-generated install commands do not need to guess the current versioned filename.
+- Switched the Windows installer to a lighter bootstrap flow that downloads the GLiNER2 model from the release assets during setup with installer progress, instead of baking the model into `VeilSetup.exe`.
+- Windows and Unix refresh installs now reuse an existing valid local GLiNER2 model cache instead of redownloading it on every update, while full uninstall still removes the cached model data.
 
 ### Windows Runtime Reliability
 
