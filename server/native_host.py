@@ -626,6 +626,22 @@ def start_server(
             **runtime_meta(),
         }
 
+    # Check if a server process is still loading the model (wrote state file
+    # but hasn't opened the port yet).  The process_state.json is written at
+    # server startup before model loading begins.
+    proc_state = read_process_state()
+    proc_pid = proc_state.get("pid")
+    if proc_pid and is_pid_running(proc_pid):
+        healthy = wait_for_health()
+        return {
+            "success": True,
+            "running": True,
+            "healthy": healthy,
+            "pid": proc_pid,
+            "message": "Server started." if healthy else "Server is starting (model loading).",
+            **runtime_meta(),
+        }
+
     # If the port is already in use (e.g. autostart service loading the model),
     # wait for it to become healthy instead of launching a second server.
     if is_port_open():
@@ -670,10 +686,14 @@ def start_server(
     if resolved_model:
         extra_env[MODEL_ENV_VAR] = resolved_model
 
-    if install_deps:
+    # Skip expensive subprocess checks when the runtime is already set up.
+    # These checks can trigger ONNX initialization errors on Windows when
+    # another server instance is loading the model.
+    runtime_ready = VENV_PYTHON.exists() and is_model_present()
+    if install_deps and not runtime_ready:
         ensure_dependencies()
 
-    if download_model:
+    if download_model and not runtime_ready:
         ensure_model_downloaded(resolved_model, extra_env)
 
     ensure_runtime_dirs()
