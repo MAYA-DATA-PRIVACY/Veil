@@ -350,14 +350,14 @@ test.describe('Release Status UX', () => {
             };
             sm.serverMeta = {
                 ...sm.serverMeta,
-                bundleReleaseTag: 'v1.2.5',
-                bundleReleaseUrl: 'https://github.com/Maya-Data-Privacy/Veil/releases/tag/v1.2.5',
+                bundleReleaseTag: 'v1.2.6',
+                bundleReleaseUrl: 'https://github.com/Maya-Data-Privacy/Veil/releases/tag/v1.2.6',
             };
             sm.renderReleaseInfo();
         });
 
         await expect(page.locator('#sidebarUpdateTitle')).toHaveText('Everything looks current locally');
-        await expect(page.locator('#releaseStatusText')).toContainText('Everything looks current locally: v1.2.5');
+        await expect(page.locator('#releaseStatusText')).toContainText('Everything looks current locally: v1.2.6');
         await expect(page.locator('#releaseStatusSubtext')).toContainText('GitHub release checks are temporarily unavailable');
     });
 

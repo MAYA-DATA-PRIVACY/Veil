@@ -1245,8 +1245,9 @@ async function handleServerControl(command, options = {}) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Only accept messages from content scripts running in real tabs
-  if (!sender?.tab?.id && request.action !== 'getServerStatus') return false;
+  // Detection actions must come from content scripts in real tabs
+  const isDetectionAction = request.action === 'detectPII' || request.action === 'detectPIIFast';
+  if (isDetectionAction && !sender?.tab?.id) return false;
 
   if (request.action === 'detectPIIFast') {
     try {

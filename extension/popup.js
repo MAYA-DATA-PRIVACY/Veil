@@ -597,11 +597,6 @@ class SettingsManager {
   renderStats() {
     document.getElementById('detectionCount').textContent = this.formatNumber(this.stats.detections);
     document.getElementById('redactionCount').textContent = this.formatNumber(this.stats.redactions);
-    const hint = document.getElementById('statusSubtext');
-    const serverOnline = this.serverState.installed && this.serverState.running && this.serverState.healthy;
-    if (hint && !this._pageActive && this.settings.enabled && !serverOnline) {
-      hint.textContent = 'Not active on this page.';
-    }
   }
 
   renderAdvancedStates() {
