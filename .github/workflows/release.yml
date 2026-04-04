@@ -150,6 +150,60 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: xvfb-run -a npm run test:e2e
 
+  build-windows-installer:
+    name: Build Windows Setup
+    runs-on: windows-latest
+    needs:
+      - verify-release-version
+      - test-js
+      - test-python
+      - test-e2e
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.verify-release-version.outputs.tag_name }}
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.10.7'
+          python-version: '3.11'
+          enable-cache: true
+          cache-python: true
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: uv sync --frozen --no-dev --no-install-project
+
+      - name: Build model bundle (fp16 ONNX from HuggingFace)
+        shell: pwsh
+        run: uv run --no-sync python scripts/build_model_bundle.py
+
+      - name: Build Windows installer staging
+        env:
+          VEIL_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
+          VEIL_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
+        shell: pwsh
+        run: |
+          $env:VEIL_RELEASE_PUBLISHED_AT = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          uv run --no-sync python scripts/build_windows_installer.py
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile Windows installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\windows\VeilSetup.iss"
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veil-windows-setup
+          path: dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
+          if-no-files-found: error
+
   publish-release-assets:
     name: Build And Upload Release Assets
     runs-on: ubuntu-latest
@@ -158,6 +212,7 @@ jobs:
       - test-js
       - test-python
       - test-e2e
+      - build-windows-installer
     permissions:
       contents: write
     steps:
@@ -203,6 +258,15 @@ jobs:
       - name: Rename extension ZIP with version
         run: mv dist/veil-extension.zip "dist/veil-extension-${{ needs.verify-release-version.outputs.release_version }}.zip"
 
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: veil-windows-setup
+          path: dist
+
+      - name: Create stable Windows installer alias
+        run: cp "dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" dist/VeilSetup.exe
+
       - name: Compose release notes
         env:
           RELEASE_VERSION: ${{ needs.verify-release-version.outputs.release_version }}
@@ -231,3 +295,5 @@ jobs:
             dist/veil-backend-unix.tar.gz
             dist/veil-backend-windows.zip
             dist/veil-model-fp16.tar.gz
+            dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
+            dist/VeilSetup.exe

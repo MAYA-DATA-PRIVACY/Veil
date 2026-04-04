@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.8] - 2026-04-04
+
+### Windows Installer
+
+- Added a branded offline `VeilSetup.exe` Windows installer flow that stages the bundled local runtime, server files, and extracted GLiNER2 model before compiling a production-style setup binary on the Windows release runner.
+- Updated the Windows install UX so Veil can generate a command that downloads the latest `VeilSetup.exe` release asset and passes `/EXTENSION_ID=<chrome.runtime.id>`, while the installer only falls back to a manual extension-ID prompt when that argument is missing.
+- Added a stable `VeilSetup.exe` latest-release alias alongside the versioned installer asset so extension-generated install commands do not need to guess the current versioned filename.
+
+### Windows Runtime Reliability
+
+- Fixed Windows native-host PID liveness checks so Veil no longer uses the Unix-style `os.kill(pid, 0)` probe on Windows, which could surface low-level `OSError` failures during server start.
+- Switched Windows stop behavior to `taskkill`-based process teardown and hardened server launch with safer Windows-specific process creation flags and clearer startup error reporting.
+
+### Release Automation and Coverage
+
+- Added a Windows installer staging builder, branded installer assets, and release-pipeline automation that compiles and publishes the Windows setup binary from GitHub Actions.
+- Added regression coverage for the Windows setup packaging flow and for the Windows-specific native-host process handling changes.
+
+---
+
 ## [1.2.7] - 2026-04-04
 
 ### Improvements

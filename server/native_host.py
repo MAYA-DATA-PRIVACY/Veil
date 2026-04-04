@@ -114,6 +114,10 @@ def runtime_env(extra_env: Dict[str, str] | None = None) -> Dict[str, str]:
     return env
 
 
+def is_windows_platform() -> bool:
+    return os.name == "nt"
+
+
 def run_cmd(
     cmd: list[str],
     cwd: Path | None = None,
@@ -215,10 +219,32 @@ def is_pid_running(pid: int | None) -> bool:
     if not pid:
         return False
     try:
-        os.kill(int(pid), 0)
+        normalized_pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if is_windows_platform():
+        return is_pid_running_windows(normalized_pid)
+    try:
+        os.kill(normalized_pid, 0)
         return True
     except OSError:
         return False
+
+
+def is_pid_running_windows(pid: int) -> bool:
+    # On Windows, os.kill(pid, 0) is not a harmless existence probe. Per the
+    # Python docs, non-CTRL signals are implemented via TerminateProcess.
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        f"$proc = Get-Process -Id {int(pid)};"
+        "if ($null -ne $proc) { exit 0 }"
+        "exit 1"
+    )
+    try:
+        result = run_cmd(["powershell", "-NoProfile", "-Command", script])
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def is_port_open(host: str = SERVER_HOST, port: int = SERVER_PORT) -> bool:
@@ -251,7 +277,7 @@ def wait_for_health(timeout: float = WAIT_SECONDS) -> bool:
 
 def normalize_command(command: str) -> str:
     normalized = str(command or "")
-    if os.name == "nt":
+    if is_windows_platform():
         return normalized.replace("/", "\\").lower()
     return normalized
 
@@ -264,7 +290,7 @@ def is_owned_server_command(command: str) -> bool:
 
 
 def list_processes() -> list[dict[str, Any]]:
-    if os.name == "nt":
+    if is_windows_platform():
         script = (
             "$ErrorActionPreference='SilentlyContinue';"
             "Get-CimInstance Win32_Process | "
@@ -356,11 +382,17 @@ def active_server_pid() -> int | None:
 def kill_pid(pid: int) -> bool:
     if not is_pid_running(pid):
         return True
+    if is_windows_platform():
+        graceful = run_cmd(["taskkill", "/PID", str(pid), "/T"])
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if not is_pid_running(pid):
+                return True
+            time.sleep(0.2)
+        force = run_cmd(["taskkill", "/PID", str(pid), "/F", "/T"])
+        return graceful.returncode == 0 or force.returncode == 0 or not is_pid_running(pid)
     try:
-        if os.name == "nt":
-            os.kill(pid, signal.SIGTERM)
-        else:
-            os.kill(pid, signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
     except OSError:
         pass
 
@@ -370,16 +402,33 @@ def kill_pid(pid: int) -> bool:
             return True
         time.sleep(0.2)
 
-    if os.name == "nt":
-        result = run_cmd(["taskkill", "/PID", str(pid), "/F", "/T"])
-        return result.returncode == 0 or not is_pid_running(pid)
-
     try:
         os.kill(pid, signal.SIGKILL)
     except OSError:
         pass
     time.sleep(0.2)
     return not is_pid_running(pid)
+
+
+def build_server_launch_kwargs(
+    log_handle: Any,
+    extra_env: Dict[str, str] | None = None,
+) -> Dict[str, Any]:
+    kwargs: Dict[str, Any] = {
+        "cwd": str(REPO_DIR),
+        "env": runtime_env({**(extra_env or {}), "PYTHONUNBUFFERED": "1"}),
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_handle,
+        "stderr": subprocess.STDOUT,
+    }
+    if is_windows_platform():
+        kwargs["creationflags"] = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    else:
+        kwargs["start_new_session"] = True
+    return kwargs
 
 
 def resolve_uv_binary() -> Path | None:
@@ -704,15 +753,15 @@ def start_server(
     if resolved_model:
         cmd.extend(["--model", resolved_model])
 
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(REPO_DIR),
-        env=runtime_env({**extra_env, "PYTHONUNBUFFERED": "1"}),
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    log_handle.close()
+    try:
+        process = subprocess.Popen(
+            cmd,
+            **build_server_launch_kwargs(log_handle, extra_env),
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Failed to launch local GLiNER2 server process: {exc}") from exc
+    finally:
+        log_handle.close()
 
     remember_server_pid(process.pid)
 
