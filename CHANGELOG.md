@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Windows Installer
 
-- Added a branded offline `VeilSetup.exe` Windows installer flow that stages the bundled local runtime, server files, and extracted GLiNER2 model before compiling a production-style setup binary on the Windows release runner.
+- Added a branded offline `VeilSetup.exe` Windows installer flow that stages the backend files and release metadata, then provisions the Windows runtime locally during setup instead of shipping a non-portable CI-built virtualenv.
 - Updated the Windows install UX so Veil can generate a command that downloads the latest `VeilSetup.exe` release asset and passes `/EXTENSION_ID=<chrome.runtime.id>`, while the installer only falls back to a manual extension-ID prompt when that argument is missing.
 - Added a stable `VeilSetup.exe` latest-release alias alongside the versioned installer asset so extension-generated install commands do not need to guess the current versioned filename.
 - Switched the Windows installer to a lighter bootstrap flow that downloads the GLiNER2 model from the release assets during setup with installer progress, instead of baking the model into `VeilSetup.exe`.
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed the Windows popup install command so PowerShell can paste and run it correctly without expanding `$installer` too early in the current shell.
 - Fixed the Windows setup model extraction path so the downloaded `veil-model-fp16.tar.gz` now unpacks correctly during install.
 - Fixed the Windows installer script ordering so the Inno Setup compiler can resolve the model extraction helpers during release builds.
+- Fixed the Windows setup runtime bootstrap so the installed `.venv` is created on the user's machine and no longer points back to the GitHub Actions runner Python path.
 
 ### Windows Runtime Reliability
 

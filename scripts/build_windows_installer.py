@@ -18,11 +18,11 @@ MODEL_ASSET_NAME = "veil-model-fp16.tar.gz"
 BUNDLE_RELEASE_ARCNAME = Path(".runtime") / "bundle_release.json"
 COPY_PATHS = [
     ROOT / "server",
+    ROOT / "scripts" / "installers",
     ROOT / "pyproject.toml",
     ROOT / "uv.lock",
     ROOT / ".python-version",
     ROOT / "LICENSE",
-    ROOT / ".venv",
 ]
 REPO_SLUG = "Maya-Data-Privacy/Veil"
 

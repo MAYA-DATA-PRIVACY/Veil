@@ -286,24 +286,30 @@ begin
   end;
 end;
 
-procedure RegisterNativeHost();
+procedure FinalizeLocalRuntime();
 var
   ResultCode: Integer;
-  NativeHostScript: String;
+  InstallerScript: String;
   Params: String;
-  CmdParams: String;
 begin
   ExtensionId := ResolveExtensionId();
   if ExtensionId = '' then
     RaiseException('A valid Veil extension ID is required to finish Windows setup.');
 
-  NativeHostScript := ExpandConstant('{app}\server\native-host\install_windows.bat');
-  Params := '"' + ExtensionId + '"';
-  CmdParams := '/C ""' + NativeHostScript + '" ' + Params + '"';
-  if not Exec(ExpandConstant('{cmd}'), CmdParams, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    RaiseException('Failed to launch Veil native-host registration.');
+  InstallerScript := ExpandConstant('{app}\scripts\installers\install.ps1');
+  if not FileExists(InstallerScript) then
+    RaiseException('Veil setup could not find the bundled Windows installer script.');
+
+  Params :=
+    '-NoProfile -ExecutionPolicy Bypass -File "' + InstallerScript + '"' +
+    ' -ExtensionId "' + ExtensionId + '"' +
+    ' -InstallDir "' + ExpandConstant('{app}') + '"' +
+    ' -UseExistingBundle';
+
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    RaiseException('Failed to launch Veil runtime provisioning.');
   if ResultCode <> 0 then
-    RaiseException('Veil native-host registration failed with exit code ' + IntToStr(ResultCode) + '.');
+    RaiseException('Veil runtime provisioning failed with exit code ' + IntToStr(ResultCode) + '.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -311,7 +317,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     EnsureModelPresent();
-    RegisterNativeHost();
+    FinalizeLocalRuntime();
   end;
 end;
 

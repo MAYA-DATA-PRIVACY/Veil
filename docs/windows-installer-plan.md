@@ -22,8 +22,9 @@ user's Veil extension.
 Phase 1 focuses on the shippable path we can build from this repository now:
 
 1. Build a Windows-only staged payload on `windows-latest`.
-2. Bundle `.venv`, server files, and release metadata into the installer
-   staging directory, but keep the model as a separate release asset.
+2. Bundle the server files, PowerShell installer scripts, and release metadata
+   into the installer staging directory, but create `.venv` locally on the
+   user's machine during setup instead of shipping a CI-built virtualenv.
 3. Compile a branded Inno Setup bootstrap installer from that stage.
 4. Accept `/EXTENSION_ID=<id>` from the extension-generated install command,
    and only prompt during install if that argument is missing.
@@ -37,7 +38,8 @@ Phase 1 focuses on the shippable path we can build from this repository now:
 
 - Veil branding on setup binary and wizard surfaces.
 - Per-user install into `%LOCALAPPDATA%\Veil`.
-- Backend payload with no runtime `uv sync`.
+- Backend payload copied first, then local runtime provisioning via `uv sync`
+  during setup so Windows gets a machine-local `.venv`.
 - Model download step with native installer progress on first install only.
 - Update-safe cache reuse so repeat installs do not redownload the model.
 - Extension-generated Windows command downloads `VeilSetup.exe` and passes

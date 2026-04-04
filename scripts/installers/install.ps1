@@ -410,6 +410,27 @@ function Sync-VeilRuntime {
     }
 }
 
+function Assert-VeilBundledPayload {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallDir
+    )
+
+    $requiredPaths = @(
+        (Join-Path $InstallDir "server\gliner2_server.py"),
+        (Join-Path $InstallDir "server\native-host\install_windows.bat"),
+        (Join-Path $InstallDir "pyproject.toml"),
+        (Join-Path $InstallDir "uv.lock"),
+        (Join-Path $InstallDir ".python-version")
+    )
+
+    foreach ($path in $requiredPaths) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            throw "Veil setup is missing a required bundled file: $path"
+        }
+    }
+}
+
 function global:Install-Veil {
     [CmdletBinding()]
     param(
@@ -417,6 +438,7 @@ function global:Install-Veil {
         [string]$ExtensionId,
         [string]$InstallDir = $env:VEIL_INSTALL_DIR,
         [switch]$RecreateVenv,
+        [switch]$UseExistingBundle,
         [string]$UvVersion = $env:VEIL_UV_VERSION,
         [string]$UvPath = $env:VEIL_UV_PATH
     )
@@ -444,10 +466,6 @@ function global:Install-Veil {
         $ErrorActionPreference = "Stop"
         New-Item -ItemType Directory -Force -Path $tempRoot, $extractDir, $InstallDir | Out-Null
 
-        Write-Host "Downloading Veil backend bundle..."
-        Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$assetName" -OutFile $archivePath
-        Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
-
         $nativeHostUninstall = Join-Path $InstallDir "server\native-host\uninstall_windows.bat"
         $autostartUninstall = Join-Path $InstallDir "server\autostart\uninstall_windows.bat"
         if (Test-Path -LiteralPath $autostartUninstall) {
@@ -460,8 +478,18 @@ function global:Install-Veil {
         }
 
         Stop-VeilWindowsProcesses -InstallDir $InstallDir
-        Remove-VeilInstallContents -InstallDir $InstallDir
-        Copy-Item -Path (Join-Path $extractDir "*") -Destination $InstallDir -Recurse -Force
+        if ($UseExistingBundle) {
+            Write-Host "Using the Veil files already installed by VeilSetup.exe..."
+            Assert-VeilBundledPayload -InstallDir $InstallDir
+        }
+        else {
+            Write-Host "Downloading Veil backend bundle..."
+            Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$assetName" -OutFile $archivePath
+            Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
+
+            Remove-VeilInstallContents -InstallDir $InstallDir
+            Copy-Item -Path (Join-Path $extractDir "*") -Destination $InstallDir -Recurse -Force
+        }
 
         $envFile = Join-Path $InstallDir ".env"
         if (-not (Test-Path -LiteralPath $envFile)) {
@@ -559,6 +587,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     $extId = $null
     $installDir = $null
     $recreate = $false
+    $useExistingBundle = $false
 
     for ($i = 0; $i -lt $args.Count; $i++) {
         switch ($args[$i]) {
@@ -567,6 +596,8 @@ if ($MyInvocation.InvocationName -ne '.') {
             '--install-dir'  { $installDir = $args[++$i] }
             '-InstallDir'    { $installDir = $args[++$i] }
             '--recreate-venv' { $recreate = $true }
+            '--use-existing-bundle' { $useExistingBundle = $true }
+            '-UseExistingBundle' { $useExistingBundle = $true }
         }
     }
 
@@ -589,5 +620,6 @@ if ($MyInvocation.InvocationName -ne '.') {
     $params = @{ ExtensionId = $extId }
     if (-not [string]::IsNullOrWhiteSpace($installDir)) { $params.InstallDir = $installDir }
     if ($recreate) { $params.RecreateVenv = $true }
+    if ($useExistingBundle) { $params.UseExistingBundle = $true }
     Install-Veil @params
 }
