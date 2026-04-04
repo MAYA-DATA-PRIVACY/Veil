@@ -220,6 +220,47 @@ function Remove-VeilInstallContents {
     }
 }
 
+function Test-VeilModelFilesPresent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ModelDir
+    )
+
+    if (-not (Test-Path -LiteralPath $ModelDir -PathType Container)) {
+        return $false
+    }
+
+    return (
+        (Test-Path -LiteralPath (Join-Path $ModelDir "config.json") -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $ModelDir "gliner2_config.json") -PathType Leaf)
+    )
+}
+
+function Test-VeilModelPresent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallDir
+    )
+
+    $bundledModelDir = Join-Path $InstallDir ".runtime\cache\model\model"
+    if (Test-VeilModelFilesPresent -ModelDir $bundledModelDir) {
+        return $true
+    }
+
+    $snapshotsDir = Join-Path $InstallDir ".runtime\cache\hf\hub\models--lmo3--gliner2-large-v1-onnx\snapshots"
+    if (-not (Test-Path -LiteralPath $snapshotsDir -PathType Container)) {
+        return $false
+    }
+
+    foreach ($snapshot in Get-ChildItem -LiteralPath $snapshotsDir -Directory -ErrorAction SilentlyContinue) {
+        if (Test-VeilModelFilesPresent -ModelDir $snapshot.FullName) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Write-VeilReleaseMetadata {
     param(
         [Parameter(Mandatory = $true)]
@@ -453,26 +494,29 @@ function global:Install-Veil {
         $modelDest = Join-Path $InstallDir ".runtime\cache\model"
 
         Write-Host ""
-        Write-Host "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
-        $modelDownloaded = $false
-        try {
-            # Use .NET WebClient for large downloads — Invoke-WebRequest is very slow for big files
-            $wc = New-Object System.Net.WebClient
-            $wc.DownloadFile($modelUrl, $modelArchive)
-            New-Item -ItemType Directory -Force -Path $modelDest | Out-Null
-            tar -xzf $modelArchive -C $modelDest
-            Write-Host "Model extracted to $modelDest"
-            $modelDownloaded = $true
+        if (Test-VeilModelPresent -InstallDir $InstallDir) {
+            Write-Host "Existing GLiNER2 model cache found; skipping download."
         }
-        catch {
-            Write-Host "Bundled model not found in release; downloading from HuggingFace Hub..."
-            $venvPythonPreDl = Join-Path $InstallDir ".venv\Scripts\python.exe"
-            $serverScriptPreDl = Join-Path $InstallDir "server\gliner2_server.py"
+        else {
+            Write-Host "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
             try {
-                & $venvPythonPreDl $serverScriptPreDl --download-only
+                # Use .NET WebClient for large downloads — Invoke-WebRequest is very slow for big files
+                $wc = New-Object System.Net.WebClient
+                $wc.DownloadFile($modelUrl, $modelArchive)
+                New-Item -ItemType Directory -Force -Path $modelDest | Out-Null
+                tar -xzf $modelArchive -C $modelDest
+                Write-Host "Model extracted to $modelDest"
             }
             catch {
-                Write-Host "Warning: model download failed. It will download on first use."
+                Write-Host "Bundled model not found in release; downloading from HuggingFace Hub..."
+                $venvPythonPreDl = Join-Path $InstallDir ".venv\Scripts\python.exe"
+                $serverScriptPreDl = Join-Path $InstallDir "server\gliner2_server.py"
+                try {
+                    & $venvPythonPreDl $serverScriptPreDl --download-only
+                }
+                catch {
+                    Write-Host "Warning: model download failed. It will download on first use."
+                }
             }
         }
 

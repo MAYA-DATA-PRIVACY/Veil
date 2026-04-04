@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Assemble the offline Windows installer payload for Veil."""
+"""Assemble the Windows installer payload for Veil."""
 
 from __future__ import annotations
 
 import json
 import os
 import shutil
-import tarfile
 from pathlib import Path
 
 
@@ -15,7 +14,7 @@ DIST = ROOT / "dist"
 STAGING_ROOT = DIST / "windows-installer"
 STAGE_DIR = STAGING_ROOT / "stage"
 METADATA_ISS = STAGING_ROOT / "metadata.iss"
-MODEL_ARCHIVE = DIST / "veil-model-fp16.tar.gz"
+MODEL_ASSET_NAME = "veil-model-fp16.tar.gz"
 BUNDLE_RELEASE_ARCNAME = Path(".runtime") / "bundle_release.json"
 COPY_PATHS = [
     ROOT / "server",
@@ -67,22 +66,11 @@ def write_release_metadata(stage_dir: Path) -> None:
     target.write_text(payload, encoding="utf-8")
 
 
-def extract_model_bundle(stage_dir: Path) -> None:
-    if not MODEL_ARCHIVE.exists():
-        raise FileNotFoundError(
-            f"Expected bundled model archive at {MODEL_ARCHIVE}. Build it first with scripts/build_model_bundle.py."
-        )
-    model_dest = stage_dir / ".runtime" / "cache" / "model"
-    model_dest.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(MODEL_ARCHIVE, "r:gz") as archive:
-        try:
-            archive.extractall(model_dest, filter="data")
-        except TypeError:
-            archive.extractall(model_dest)
-
-
 def write_metadata_iss() -> None:
     version = load_package_version()
+    release_metadata = build_release_metadata()
+    tag = release_metadata["tag"]
+    model_asset_url = f"https://github.com/{REPO_SLUG}/releases/download/{tag}/{MODEL_ASSET_NAME}"
     escaped_stage_dir = str(STAGE_DIR).replace("\\", "\\\\")
     lines = [
         f'#define MyAppName "Veil"',
@@ -90,6 +78,10 @@ def write_metadata_iss() -> None:
         f'#define MyAppPublisher "Maya Data Privacy"',
         f'#define MyAppCopyright "Copyright (c) Maya Data Privacy"',
         f'#define MyAppUrl "https://github.com/{REPO_SLUG}"',
+        f'#define MyReleaseTag "{tag}"',
+        f'#define MyRepositorySlug "{REPO_SLUG}"',
+        f'#define MyModelAssetName "{MODEL_ASSET_NAME}"',
+        f'#define MyModelAssetUrl "{model_asset_url}"',
         f'#define MyStageDir "{escaped_stage_dir}"',
         "",
     ]
@@ -104,7 +96,6 @@ def build_stage() -> None:
             raise FileNotFoundError(f"Required installer input is missing: {path}")
         copy_path(path, STAGE_DIR)
     write_release_metadata(STAGE_DIR)
-    extract_model_bundle(STAGE_DIR)
     write_metadata_iss()
 
 

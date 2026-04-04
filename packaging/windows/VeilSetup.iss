@@ -19,6 +19,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+ArchiveExtraction=full
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -49,9 +50,15 @@ Name: "{app}\.runtime\cache\xdg"
 [Icons]
 Name: "{autoprograms}\Veil"; Filename: "{uninstallexe}"
 
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\.runtime"
+Type: files; Name: "{app}\.env"
+
 [Code]
 var
   ExtensionIdPage: TInputQueryWizardPage;
+  DownloadPage: TDownloadWizardPage;
+  ExtractionPage: TExtractionWizardPage;
   ExtensionId: String;
 
 function GetCliExtensionId(): String;
@@ -91,8 +98,161 @@ begin
     Result := NormalizeExtensionId(ExtensionIdPage.Values[0]);
 end;
 
+function ModelFilesPresentInDir(const Value: String): Boolean;
+var
+  ModelDir: String;
+begin
+  ModelDir := AddBackslash(Value);
+  Result :=
+    DirExists(Value) and
+    FileExists(ModelDir + 'config.json') and
+    FileExists(ModelDir + 'gliner2_config.json');
+end;
+
+function BundledModelPresent(): Boolean;
+begin
+  Result := ModelFilesPresentInDir(ExpandConstant('{app}\.runtime\cache\model\model'));
+end;
+
+function CachedHubModelPresent(): Boolean;
+var
+  SnapshotsDir: String;
+  SnapshotPath: String;
+  FindRec: TFindRec;
+begin
+  Result := False;
+  SnapshotsDir := ExpandConstant('{app}\.runtime\cache\hf\hub\models--lmo3--gliner2-large-v1-onnx\snapshots');
+  if not DirExists(SnapshotsDir) then
+    exit;
+
+  if FindFirst(AddBackslash(SnapshotsDir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          SnapshotPath := AddBackslash(SnapshotsDir) + FindRec.Name;
+          if ModelFilesPresentInDir(SnapshotPath) then
+          begin
+            Result := True;
+            exit;
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+function IsModelPresent(): Boolean;
+begin
+  Result := BundledModelPresent() or CachedHubModelPresent();
+end;
+
+function GetModelArchivePath(): String;
+begin
+  Result := ExpandConstant('{tmp}\{#MyModelAssetName}');
+end;
+
+function GetExtractedTarPath(): String;
+begin
+  Result := ExpandConstant('{tmp}\veil-model-fp16.tar');
+end;
+
+function GetTemporaryExtractDir(): String;
+begin
+  Result := ExpandConstant('{tmp}\veil-model-stage');
+end;
+
+procedure DownloadModelAsset();
+begin
+  if WizardSilent then
+  begin
+    DownloadTemporaryFile('{#MyModelAssetUrl}', '{#MyModelAssetName}', '', nil);
+    exit;
+  end;
+
+  DownloadPage.Clear;
+  DownloadPage.Add('{#MyModelAssetUrl}', '{#MyModelAssetName}', '');
+  DownloadPage.Show;
+  try
+    DownloadPage.Download;
+  finally
+    DownloadPage.Hide;
+  end;
+end;
+
+procedure ExtractModelAsset();
+var
+  TempExtractDir: String;
+begin
+  TempExtractDir := GetTemporaryExtractDir();
+  if not DirExists(TempExtractDir) then
+    CreateDir(TempExtractDir);
+
+  if WizardSilent then
+  begin
+    ExtractArchive(GetModelArchivePath(), TempExtractDir, '', True, nil);
+    ExtractArchive(GetExtractedTarPath(), ExpandConstant('{app}\.runtime\cache\model'), '', True, nil);
+    exit;
+  end;
+
+  ExtractionPage.Clear;
+  ExtractionPage.ShowArchiveInsteadOfFile := True;
+  ExtractionPage.Add(GetModelArchivePath(), TempExtractDir, True);
+  ExtractionPage.Show;
+  try
+    ExtractionPage.Extract;
+  finally
+    ExtractionPage.Hide;
+  end;
+
+  ExtractionPage.Clear;
+  ExtractionPage.ShowArchiveInsteadOfFile := True;
+  ExtractionPage.Add(GetExtractedTarPath(), ExpandConstant('{app}\.runtime\cache\model'), True);
+  ExtractionPage.Show;
+  try
+    ExtractionPage.Extract;
+  finally
+    ExtractionPage.Hide;
+  end;
+end;
+
+procedure EnsureModelPresent();
+begin
+  if IsModelPresent() then
+    exit;
+
+  try
+    DownloadModelAsset();
+    ExtractModelAsset();
+  except
+    RaiseException(
+      'Veil could not download the GLiNER2 model from this release. ' +
+      'Check your network connection and rerun setup.'
+    );
+  end;
+
+  if not IsModelPresent() then
+    RaiseException('Veil setup could not verify the downloaded GLiNER2 model cache.');
+end;
+
 procedure InitializeWizard();
 begin
+  DownloadPage := CreateDownloadPage(
+    'Downloading GLiNER2 model',
+    'Veil is downloading the local model asset from this release.',
+    nil
+  );
+  DownloadPage.ShowBaseNameInsteadOfUrl := True;
+
+  ExtractionPage := CreateExtractionPage(
+    'Extracting GLiNER2 model',
+    'Veil is unpacking the downloaded model into your local cache.',
+    nil
+  );
+
   if GetCliExtensionId() <> '' then
     exit;
 
@@ -149,7 +309,10 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    EnsureModelPresent();
     RegisterNativeHost();
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
