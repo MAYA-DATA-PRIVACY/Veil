@@ -3,6 +3,7 @@ Regression tests for server/native_host.py utility behavior.
 """
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -80,6 +81,7 @@ def test_read_bundle_release_info_falls_back_to_unknown_for_invalid_json(runtime
 def test_start_server_reports_port_conflict_for_non_veil_process(monkeypatch, runtime_paths):
     monkeypatch.setattr(native_host, "is_server_healthy", lambda: False)
     monkeypatch.setattr(native_host, "is_port_open", lambda host="127.0.0.1", port=8765: True)
+    monkeypatch.setattr(native_host, "wait_for_health", lambda timeout=native_host.WAIT_SECONDS: False)
     monkeypatch.setattr(native_host, "discover_owned_server_pids", lambda: [])
     monkeypatch.setattr(native_host, "load_state", lambda: {})
     monkeypatch.setattr(native_host, "read_process_state", lambda: {})
@@ -135,3 +137,57 @@ def test_restart_server_stops_then_starts(monkeypatch, runtime_paths):
         "stop",
         ("start", True, False, "hf_token", "fastino/gliner2-large-v1"),
     ]
+
+
+def test_is_pid_running_uses_windows_process_query(monkeypatch):
+    monkeypatch.setattr(native_host, "is_windows_platform", lambda: True)
+    monkeypatch.setattr(native_host, "is_pid_running_windows", lambda pid: pid == 4242)
+    monkeypatch.setattr(native_host.os, "kill", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("os.kill should not be used on Windows pid probes")))
+
+    assert native_host.is_pid_running(4242) is True
+    assert native_host.is_pid_running(7) is False
+
+
+def test_kill_pid_windows_uses_taskkill(monkeypatch):
+    calls = []
+    running_states = iter([True, False])
+    monkeypatch.setattr(native_host, "is_windows_platform", lambda: True)
+    monkeypatch.setattr(native_host, "is_pid_running", lambda pid: next(running_states))
+    monkeypatch.setattr(native_host, "run_cmd", lambda cmd, cwd=None, env=None: calls.append(cmd) or SimpleNamespace(returncode=0))
+    monkeypatch.setattr(native_host.os, "kill", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("os.kill should not be used on Windows stop path")))
+
+    assert native_host.kill_pid(4242) is True
+    assert calls == [["taskkill", "/PID", "4242", "/T"]]
+
+
+def test_build_server_launch_kwargs_uses_windows_creationflags(monkeypatch):
+    monkeypatch.setattr(native_host, "is_windows_platform", lambda: True)
+    monkeypatch.setattr(native_host.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, raising=False)
+    monkeypatch.setattr(native_host.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+
+    kwargs = native_host.build_server_launch_kwargs(log_handle=object(), extra_env={"HF_TOKEN": "secret"})
+
+    assert kwargs["stdin"] is native_host.subprocess.DEVNULL
+    assert kwargs["creationflags"] == 0x08000200
+    assert "start_new_session" not in kwargs
+    assert kwargs["env"]["HF_TOKEN"] == "secret"
+    assert kwargs["env"]["PYTHONUNBUFFERED"] == "1"
+
+
+def test_start_server_wraps_launch_failures(monkeypatch, runtime_paths):
+    venv_python = runtime_paths / ".venv" / "Scripts" / "python.exe"
+    venv_python.parent.mkdir(parents=True, exist_ok=True)
+    venv_python.write_text("", encoding="utf-8")
+    monkeypatch.setattr(native_host, "VENV_PYTHON", venv_python)
+    monkeypatch.setattr(native_host, "server_status", lambda: {"healthy": False, "running": False})
+    monkeypatch.setattr(native_host, "read_process_state", lambda: {})
+    monkeypatch.setattr(native_host, "is_port_open", lambda host="127.0.0.1", port=8765: False)
+    monkeypatch.setattr(native_host, "build_server_launch_kwargs", lambda log_handle, extra_env=None: {})
+    monkeypatch.setattr(
+        native_host.subprocess,
+        "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(SystemError("<class 'OSError'> returned a result with an exception set")),
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to launch local GLiNER2 server process"):
+        native_host.start_server(install_deps=False, download_model=False)

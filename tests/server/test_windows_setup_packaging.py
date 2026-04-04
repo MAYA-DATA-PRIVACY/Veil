@@ -1,0 +1,119 @@
+"""
+Regression tests for the Windows setup packaging flow.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import tarfile
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_PATH = ROOT / "scripts" / "build_windows_installer.py"
+ISS_PATH = ROOT / "packaging" / "windows" / "VeilSetup.iss"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release.yml"
+POPUP_SCRIPT_PATH = ROOT / "extension" / "popup.js"
+
+
+def load_module():
+    spec = importlib.util.spec_from_file_location("build_windows_installer", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_build_stage_copies_runtime_and_extracts_model(tmp_path, monkeypatch):
+    module = load_module()
+    repo_root = tmp_path / "repo"
+    dist_dir = repo_root / "dist"
+    dist_dir.mkdir(parents=True)
+
+    (repo_root / "package.json").write_text('{"version":"9.9.9"}', encoding="utf-8")
+    (repo_root / "pyproject.toml").write_text('version = "9.9.9"\n', encoding="utf-8")
+    (repo_root / "uv.lock").write_text("", encoding="utf-8")
+    (repo_root / ".python-version").write_text("3.11\n", encoding="utf-8")
+    (repo_root / "LICENSE").write_text("MIT\n", encoding="utf-8")
+
+    server_dir = repo_root / "server"
+    server_dir.mkdir()
+    (server_dir / "native_host.py").write_text("print('veil')\n", encoding="utf-8")
+
+    venv_python = repo_root / ".venv" / "Scripts" / "python.exe"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("", encoding="utf-8")
+
+    model_src = tmp_path / "model-src" / "model"
+    model_src.mkdir(parents=True)
+    (model_src / "config.json").write_text("{}", encoding="utf-8")
+    (model_src / "gliner2_config.json").write_text("{}", encoding="utf-8")
+    with tarfile.open(dist_dir / "veil-model-fp16.tar.gz", "w:gz") as archive:
+        archive.add(model_src, arcname="model")
+
+    monkeypatch.setattr(module, "ROOT", repo_root)
+    monkeypatch.setattr(module, "DIST", dist_dir)
+    monkeypatch.setattr(module, "STAGING_ROOT", dist_dir / "windows-installer")
+    monkeypatch.setattr(module, "STAGE_DIR", dist_dir / "windows-installer" / "stage")
+    monkeypatch.setattr(module, "METADATA_ISS", dist_dir / "windows-installer" / "metadata.iss")
+    monkeypatch.setattr(module, "MODEL_ARCHIVE", dist_dir / "veil-model-fp16.tar.gz")
+    monkeypatch.setattr(
+        module,
+        "COPY_PATHS",
+        [
+            repo_root / "server",
+            repo_root / "pyproject.toml",
+            repo_root / "uv.lock",
+            repo_root / ".python-version",
+            repo_root / "LICENSE",
+            repo_root / ".venv",
+        ],
+    )
+
+    module.build_stage()
+
+    assert (module.STAGE_DIR / "server" / "native_host.py").exists()
+    assert (module.STAGE_DIR / ".venv" / "Scripts" / "python.exe").exists()
+    assert (module.STAGE_DIR / ".runtime" / "cache" / "model" / "model" / "config.json").exists()
+
+    release_meta = json.loads((module.STAGE_DIR / ".runtime" / "bundle_release.json").read_text(encoding="utf-8"))
+    assert release_meta["tag"] == "v9.9.9"
+    assert release_meta["repository"] == "Maya-Data-Privacy/Veil"
+
+    metadata_iss = module.METADATA_ISS.read_text(encoding="utf-8")
+    assert '#define MyAppVersion "9.9.9"' in metadata_iss
+    assert '#define MyStageDir "' in metadata_iss
+
+
+def test_release_workflow_builds_and_publishes_windows_setup():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "build-windows-installer:" in workflow
+    assert "runs-on: windows-latest" in workflow
+    assert 'choco install innosetup --no-progress -y' in workflow
+    assert 'ISCC.exe' in workflow
+    assert "actions/upload-artifact@v4" in workflow
+    assert "actions/download-artifact@v5" in workflow
+    assert "dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" in workflow
+    assert "dist/VeilSetup.exe" in workflow
+
+
+def test_inno_setup_script_uses_branding_and_extension_id_capture():
+    script = ISS_PATH.read_text(encoding="utf-8")
+
+    assert "SetupIconFile=assets\\veil-installer.ico" in script
+    assert "WizardImageFile=assets\\veil-wizard.bmp" in script
+    assert "WizardSmallImageFile=assets\\veil-wizard-small.bmp" in script
+    assert "CreateInputQueryPage" in script
+    assert "install_windows.bat" in script
+    assert "/EXTENSION_ID=<id>" in script
+    assert "if GetCliExtensionId() <> '' then" in script
+
+
+def test_popup_windows_install_command_prefers_stable_setup_exe():
+    script = POPUP_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "VeilSetup.exe" in script
+    assert "/EXTENSION_ID=${chrome.runtime.id}" in script
+    assert "install.ps1" in script
