@@ -74,7 +74,7 @@ begin
 
   for I := 1 to Length(Result) do
   begin
-    if not (Result[I] in ['a'..'p']) then
+    if (Result[I] < 'a') or (Result[I] > 'p') then
     begin
       Result := '';
       exit;
