@@ -155,14 +155,14 @@ begin
   Result := ExpandConstant('{tmp}\{#MyModelAssetName}');
 end;
 
-function GetExtractedTarPath(): String;
-begin
-  Result := AddBackslash(GetTemporaryExtractDir()) + 'veil-model-fp16.tar';
-end;
-
 function GetTemporaryExtractDir(): String;
 begin
   Result := ExpandConstant('{tmp}\veil-model-stage');
+end;
+
+function GetExtractedTarPath(): String;
+begin
+  Result := AddBackslash(GetTemporaryExtractDir()) + 'veil-model-fp16.tar';
 end;
 
 procedure DownloadModelAsset();
