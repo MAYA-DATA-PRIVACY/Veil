@@ -598,7 +598,8 @@ class SettingsManager {
     document.getElementById('detectionCount').textContent = this.formatNumber(this.stats.detections);
     document.getElementById('redactionCount').textContent = this.formatNumber(this.stats.redactions);
     const hint = document.getElementById('statusSubtext');
-    if (hint && !this._pageActive && this.settings.enabled) {
+    const serverOnline = this.serverState.installed && this.serverState.running && this.serverState.healthy;
+    if (hint && !this._pageActive && this.settings.enabled && !serverOnline) {
       hint.textContent = 'Not active on this page.';
     }
   }
@@ -881,7 +882,9 @@ class SettingsManager {
     const localInstallAligned = Boolean(installedBundleTag)
       && this.normalizeVersionTag(installedBundleTag) === this.normalizeVersionTag(currentVersion);
 
-    const resolvedReleaseLink = this.releaseInfo.htmlUrl || this.serverMeta.bundleReleaseUrl || VEIL_RELEASE_PAGE_URL;
+    const resolvedReleaseLink = this._safeHttpsUrl(
+      this.releaseInfo.htmlUrl || this.serverMeta.bundleReleaseUrl || VEIL_RELEASE_PAGE_URL
+    );
 
     if (releaseLink) {
       releaseLink.href = resolvedReleaseLink;
@@ -1568,6 +1571,15 @@ class SettingsManager {
     chrome.storage.local.set({ [key]: value }, () => this.setMessage('Saved'));
   }
 
+  _safeHttpsUrl(url) {
+    try {
+      const u = new URL(url);
+      return u.protocol === 'https:' ? url : VEIL_RELEASE_PAGE_URL;
+    } catch {
+      return VEIL_RELEASE_PAGE_URL;
+    }
+  }
+
   escHtml(s) {
     return String(s || '')
       .replace(/&/g, '&amp;')
@@ -1598,6 +1610,12 @@ class SettingsManager {
       if (!label || !patternText) {
         throw new Error(`Pattern at index ${index} must include label and pattern.`);
       }
+      if (label.length > 64) {
+        throw new Error(`Pattern at index ${index}: label exceeds 64 characters.`);
+      }
+      if (patternText.length > 500) {
+        throw new Error(`Pattern at index ${index}: regex exceeds 500 characters.`);
+      }
 
       return {
         id: pattern.id ? String(pattern.id) : `custom_${index + 1}`,
@@ -1605,7 +1623,7 @@ class SettingsManager {
         pattern: patternText,
         flags: pattern.flags ? String(pattern.flags) : 'g',
         score: typeof pattern.score === 'number' ? pattern.score : 0.96,
-        replacement: pattern.replacement ? String(pattern.replacement) : null,
+        replacement: pattern.replacement ? String(pattern.replacement).slice(0, 200) : null,
         enabled: pattern.enabled !== false
       };
     });
@@ -2012,6 +2030,11 @@ class OnboardingWizard {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // CSP-safe replacement for inline onerror handlers
+  document.querySelectorAll('img[data-hide-on-error]').forEach(img => {
+    img.addEventListener('error', () => { img.style.display = 'none'; });
+  });
+
   const sm = new SettingsManager();
   window.__VEIL_SETTINGS_MANAGER__ = sm;
   // eslint-disable-next-line no-new

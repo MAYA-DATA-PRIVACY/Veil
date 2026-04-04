@@ -116,4 +116,4 @@ remove_install_dir "${INSTALL_DIR}"
 
 echo
 echo "Veil uninstall complete."
-echo "Removed install directory: ${INSTALL_DIR}"
+echo "Removed: ${INSTALL_DIR} (server, venv, models, and all cached data)"

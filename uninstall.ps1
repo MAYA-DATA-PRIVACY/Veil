@@ -112,3 +112,21 @@ function Uninstall-Veil {
         Write-Host "Please close Chrome/Edge and manually delete the folder, or restart and try again."
     }
 }
+
+# ── Auto-execute when run directly (not dot-sourced) ──
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File uninstall.ps1
+#   Or: irm https://github.com/Maya-Data-Privacy/Veil/releases/latest/download/uninstall.ps1 | iex
+if ($MyInvocation.InvocationName -ne '.') {
+    $installDir = $null
+    for ($i = 0; $i -lt $args.Count; $i++) {
+        switch ($args[$i]) {
+            '--install-dir' { $installDir = $args[++$i] }
+            '-InstallDir'   { $installDir = $args[++$i] }
+        }
+    }
+
+    $params = @{}
+    if (-not [string]::IsNullOrWhiteSpace($installDir)) { $params.InstallDir = $installDir }
+    Uninstall-Veil @params
+}

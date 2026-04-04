@@ -319,7 +319,6 @@ def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> 
         endpoint=endpoint,
         jwt=mask_token(token),
         entries_count=len(entries),
-        entries=entries,
     )
 
     request_body = json.dumps(entries).encode("utf-8")

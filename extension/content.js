@@ -2097,7 +2097,7 @@ class VeilContentController {
           const codeIdx = parseInt(match[1], 10);
           const codeBlock = codeBlocks[codeIdx] || '';
           // Convert newlines within code blocks to <br> but preserve leading/trailing newlines
-          out += codeBlock.replace(/\n/g, '<br>');
+          out += this.escapeHtmlForParagraph(codeBlock).replace(/\n/g, '<br>');
           i += match[0].length - 1;
           lineStart = false;
           continue;
@@ -2156,7 +2156,7 @@ class VeilContentController {
     out = out.replace(/__INLINE_CODE_(\d+)__/g, (match, idx) => {
       const code = inlineCodes[parseInt(idx, 10)] || '';
       // Wrap inline code in styling span but keep backticks visible
-      return `<span class="ps-inline-code">${code}</span>`;
+      return `<span class="ps-inline-code">${this.escapeHtmlForParagraph(code)}</span>`;
     });
 
     // Step 5: Handle markdown formatting that wasn't in code blocks
