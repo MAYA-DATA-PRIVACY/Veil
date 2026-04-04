@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows and Unix refresh installs now reuse an existing valid local GLiNER2 model cache instead of redownloading it on every update, while full uninstall still removes the cached model data.
 - Fixed the Windows popup install command so PowerShell can paste and run it correctly without expanding `$installer` too early in the current shell.
 - Fixed the Windows setup model extraction path so the downloaded `veil-model-fp16.tar.gz` now unpacks correctly during install.
+- Fixed the Windows installer script ordering so the Inno Setup compiler can resolve the model extraction helpers during release builds.
 
 ### Windows Runtime Reliability
 
