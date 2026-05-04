@@ -296,7 +296,7 @@ test.describe('Content-Script Detection', () => {
         EXPECTED_CUSTOM_REGEX_LABELS.forEach((label) => expect(labels.has(label), label).toBeTruthy());
     });
 
-    test('assistant responses restore originals locally while user thread prompts stay protected', async ({ extensionContext }) => {
+    test('static assistant response tokens stay masked while user thread prompts stay protected', async ({ extensionContext }) => {
         const { context, extensionId } = extensionContext;
         await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
 
@@ -325,8 +325,8 @@ test.describe('Content-Script Detection', () => {
         const injectedCount = await page.locator('#responseArea .ps-redaction, #responseArea .ps-pii-underline').count();
         expect(injectedCount).toBe(0);
 
-        await expect(page.locator('#responseArea')).toContainText('Rohan Sen');
-        await expect(page.locator('#responseArea')).not.toContainText(maskedName);
+        await expect(page.locator('#responseArea')).toContainText(maskedName);
+        await expect(page.locator('#responseArea')).not.toContainText('Rohan Sen');
         await expect(page.locator('#threadUser')).toContainText(maskedName);
         await expect(page.locator('#threadUser')).not.toContainText('Rohan Sen');
 
