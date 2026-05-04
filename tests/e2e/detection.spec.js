@@ -167,12 +167,19 @@ async function withExtensionPage(context, extensionId, callback) {
 }
 
 async function setLocalServerOverride(context, extensionId, url) {
-    await withExtensionPage(context, extensionId, (page) => page.evaluate(
+    const result = await withExtensionPage(context, extensionId, (page) => page.evaluate(
         (localServerUrl) => new Promise((resolve) => chrome.storage.local.set({
             veilLocalServerUrlOverride: localServerUrl,
-        }, resolve)),
+        }, () => {
+            chrome.runtime.sendMessage({ action: 'initialize' }, (initializeResponse) => {
+                chrome.runtime.sendMessage({ action: 'getStatus' }, (statusResponse) => {
+                    resolve({ initializeResponse, statusResponse });
+                });
+            });
+        })),
         url,
     ));
+    expect(result.statusResponse?.localServerUrl).toBe(url);
 }
 
 async function sendDetectRequest(context, extensionId, text, options = {}) {
