@@ -64,13 +64,14 @@ def test_post_rejects_oversized_json_body_before_detection():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        body = b"{" + b'"text":"' + (b"a" * DEFAULT_MAX_BODY_BYTES) + b'"}'
         status, payload = request(
             server,
             "POST",
             "/detect",
-            body=body,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Content-Length": str(DEFAULT_MAX_BODY_BYTES + 1),
+            },
         )
         assert status == 413
         assert b"byte limit" in payload
