@@ -30,6 +30,10 @@ def test_install_veil_starts_the_server_now_and_treats_autostart_as_a_warning():
     script = INSTALLER_PATH.read_text(encoding="utf-8")
 
     assert "function Start-VeilServerNow" in script
+    assert "function Test-VeilServerProcessStarting" in script
+    assert 'Start-Process -FilePath $venvPython -ArgumentList @("-u", $serverScript, "--host", "127.0.0.1", "--port", "8765")' in script
+    assert 'if (Test-VeilServerProcessStarting -InstallDir $InstallDir)' in script
+    assert 'Write-Host "Veil server is still loading GLiNER2 for the current session."' in script
     assert 'Write-Host "Warning: Veil install completed, but autostart could not be registered.' in script
     assert "Start-VeilServerNow -InstallDir $InstallDir | Out-Null" in script
 

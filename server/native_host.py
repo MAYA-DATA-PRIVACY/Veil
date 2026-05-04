@@ -34,6 +34,7 @@ PINNED_PYTHON_VERSION = "3.11.11"
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_DIR / "server" / "gliner2_server.py"
+AUTOSTART_WRAPPER_PATH = REPO_DIR / "server" / "autostart" / "start_server.cmd"
 VENV_DIR = REPO_DIR / ".venv"
 VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 PYPROJECT_FILE = REPO_DIR / "pyproject.toml"
@@ -215,12 +216,19 @@ def read_recent_logs(lines: int = 120) -> list[str]:
     return all_lines[-keep:]
 
 
-def is_pid_running(pid: int | None) -> bool:
-    if not pid:
-        return False
+def normalize_pid(pid: Any) -> int | None:
     try:
         normalized_pid = int(pid)
     except (TypeError, ValueError):
+        return None
+    if normalized_pid <= 0:
+        return None
+    return normalized_pid
+
+
+def is_pid_running(pid: Any) -> bool:
+    normalized_pid = normalize_pid(pid)
+    if normalized_pid is None:
         return False
     if is_windows_platform():
         return is_pid_running_windows(normalized_pid)
@@ -285,8 +293,14 @@ def normalize_command(command: str) -> str:
 def is_owned_server_command(command: str) -> bool:
     normalized = normalize_command(command)
     script_path = normalize_command(str(SCRIPT_PATH))
+    autostart_wrapper_path = normalize_command(str(AUTOSTART_WRAPPER_PATH))
     repo_dir = normalize_command(str(REPO_DIR))
-    return script_path in normalized and repo_dir in normalized
+    server_script_name = normalize_command("gliner2_server.py")
+    return (
+        script_path in normalized
+        or autostart_wrapper_path in normalized
+        or (repo_dir in normalized and server_script_name in normalized)
+    )
 
 
 def list_processes() -> list[dict[str, Any]]:
@@ -347,10 +361,12 @@ def tracked_server_pids() -> list[int]:
     candidates: list[int] = []
     seen: set[int] = set()
     for payload in (read_process_state(), load_state()):
-        pid = payload.get("pid")
-        if isinstance(pid, int) and pid not in seen and is_pid_running(pid):
-            seen.add(pid)
-            candidates.append(pid)
+        normalized_pid = normalize_pid(payload.get("pid"))
+        if normalized_pid is None:
+            continue
+        if normalized_pid not in seen and is_pid_running(normalized_pid):
+            seen.add(normalized_pid)
+            candidates.append(normalized_pid)
     for pid in discover_owned_server_pids():
         if pid not in seen:
             seen.add(pid)
@@ -467,6 +483,7 @@ def runtime_meta() -> Dict[str, Any]:
     model_override = os.environ.get(MODEL_ENV_VAR, "").strip()
     owned_pid = active_server_pid()
     port_open = is_port_open()
+    healthy = is_server_healthy()
     return {
         "installed": VENV_PYTHON.exists(),
         "healthUrl": SERVER_URL,
@@ -484,7 +501,7 @@ def runtime_meta() -> Dict[str, Any]:
         "lockFile": str(UV_LOCK_FILE),
         "modelOverride": model_override or None,
         "restartSupported": True,
-        "portConflict": bool(port_open and owned_pid is None and not is_server_healthy()),
+        "portConflict": bool(port_open and owned_pid is None and not healthy),
         **read_bundle_release_info(),
     }
 
@@ -603,19 +620,19 @@ def ensure_model_downloaded(model_id: str = "", extra_env: Dict[str, str] | None
 
 def server_status() -> Dict[str, Any]:
     process_state = read_process_state()
-    process_pid = process_state.get("pid")
+    process_pid = normalize_pid(process_state.get("pid"))
     process_running = is_pid_running(process_pid)
 
     state = load_state()
-    tracked_pid = state.get("pid")
+    tracked_pid = normalize_pid(state.get("pid"))
     tracked_running = is_pid_running(tracked_pid)
 
     owned_pids = discover_owned_server_pids()
     owned_pid = owned_pids[0] if owned_pids else None
     healthy = is_server_healthy()
     port_open = is_port_open()
-    port_conflict = bool(port_open and owned_pid is None and not healthy)
     running = bool(process_running or tracked_running or owned_pid or healthy)
+    port_conflict = bool(port_open and not running and not healthy)
 
     if owned_pid and not tracked_running:
         remember_server_pid(owned_pid)

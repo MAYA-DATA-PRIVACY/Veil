@@ -102,6 +102,63 @@ function Test-VeilPortOpen {
     }
 }
 
+function Test-VeilProcessRunning {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    try {
+        return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-VeilServerProcessState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallDir
+    )
+
+    $statePath = Join-Path $InstallDir ".runtime\server_process.json"
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-VeilServerProcessStarting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallDir
+    )
+
+    $state = Get-VeilServerProcessState -InstallDir $InstallDir
+    if ($null -eq $state) {
+        return $false
+    }
+
+    $processIdText = [string]($state.pid)
+    if ([string]::IsNullOrWhiteSpace($processIdText)) {
+        return $false
+    }
+
+    $serverProcessId = 0
+    if (-not [int]::TryParse($processIdText, [ref]$serverProcessId)) {
+        return $false
+    }
+
+    return Test-VeilProcessRunning -ProcessId $serverProcessId
+}
+
 function Start-VeilServerNow {
     param(
         [Parameter(Mandatory = $true)]
@@ -113,6 +170,11 @@ function Start-VeilServerNow {
 
     if (Test-VeilServerHealthy) {
         Write-Host "Veil server already healthy; skipping immediate start."
+        return $true
+    }
+
+    if (Test-VeilServerProcessStarting -InstallDir $InstallDir) {
+        Write-Host "Veil server is already starting for the current session."
         return $true
     }
 
@@ -133,14 +195,14 @@ function Start-VeilServerNow {
     $env:XDG_CACHE_HOME = Join-Path $InstallDir ".runtime\cache\xdg"
 
     try {
-        Start-Process -FilePath $venvPython -ArgumentList @($serverScript, "--host", "127.0.0.1", "--port", "8765") -WorkingDirectory $InstallDir -WindowStyle Hidden | Out-Null
+        Start-Process -FilePath $venvPython -ArgumentList @("-u", $serverScript, "--host", "127.0.0.1", "--port", "8765") -WorkingDirectory $InstallDir -WindowStyle Hidden | Out-Null
     }
     catch {
         Write-Host "Warning: Veil installed successfully, but the server could not be started immediately."
         return $false
     }
 
-    for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+    for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
         Start-Sleep -Milliseconds 500
         if (Test-VeilServerHealthy) {
             Write-Host "Veil server started for the current session."
@@ -148,7 +210,17 @@ function Start-VeilServerNow {
         }
     }
 
-    Write-Host "Warning: Veil installed successfully, but the server is still starting in the background."
+    if (Test-VeilServerProcessStarting -InstallDir $InstallDir) {
+        Write-Host "Veil server is still loading GLiNER2 for the current session."
+        return $true
+    }
+
+    if (Test-VeilPortOpen) {
+        Write-Host "Veil server opened port 8765 and is still finishing startup."
+        return $true
+    }
+
+    Write-Host "Warning: Veil installed successfully, but the server was not detected after launch."
     return $false
 }
 
