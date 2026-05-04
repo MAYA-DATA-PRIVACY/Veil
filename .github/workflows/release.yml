@@ -194,7 +194,7 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\windows\VeilSetup.iss"
 
       - name: Upload Windows installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veil-windows-setup
           path: dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
