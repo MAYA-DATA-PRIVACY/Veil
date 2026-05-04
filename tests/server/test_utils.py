@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "server")
 from gliner2_server import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
+    LABEL_TO_STRUCTURE_KEY,
     deduplicate_detections,
     flatten_gliner2_output,
     make_chunks,
@@ -44,6 +45,14 @@ class TestMakeChunks:
         for chunk_text, offset in chunks:
             for i, ch in enumerate(chunk_text):
                 covered.add(offset + i)
+        assert covered == set(range(len(text)))
+
+    def test_whitespace_adjusted_chunks_do_not_leave_gaps(self):
+        text = ("a" * (CHUNK_SIZE // 2)) + " " + ("b" * (CHUNK_SIZE + 20))
+        chunks = make_chunks(text)
+        covered = set()
+        for chunk_text, offset in chunks:
+            covered.update(range(offset, offset + len(chunk_text)))
         assert covered == set(range(len(text)))
 
     def test_chunk_offsets_correct(self):
@@ -156,3 +165,9 @@ class TestModelAliases:
     def test_public_onnx_alias_resolution(self):
         assert resolve_runtime_model_name("fastino/gliner2-large-v1") == "lmo3/gliner2-large-v1-onnx"
         assert resolve_runtime_model_name("fastino/gliner2-multi-v1") == "lmo3/gliner2-multi-v1-onnx"
+
+
+class TestStructureMapping:
+    def test_organization_has_its_own_structure_bucket(self):
+        assert LABEL_TO_STRUCTURE_KEY["organization"] == "organizations"
+        assert LABEL_TO_STRUCTURE_KEY["person"] == "persons"

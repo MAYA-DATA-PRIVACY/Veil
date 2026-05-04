@@ -70,6 +70,28 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MASK_MODE_HINT_STORAGE_KEY = 'maskModeHintSeen';
 const FAST_PROTECTION_MIN_CHARS = 480;
 
+function normalizeSiteHost(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const withoutWildcard = raw.replace(/^\*\./, '');
+  try {
+    return new URL(withoutWildcard.includes('://') ? withoutWildcard : `https://${withoutWildcard}`).hostname.replace(/^\.+|\.+$/g, '');
+  } catch {
+    return withoutWildcard.split('/')[0].split(':')[0].replace(/^\.+|\.+$/g, '');
+  }
+}
+
+function hostMatchesSite(host, site) {
+  const normalizedHost = normalizeSiteHost(host);
+  const normalizedSite = normalizeSiteHost(site);
+  if (!normalizedHost || !normalizedSite) return false;
+  return normalizedHost === normalizedSite || normalizedHost.endsWith(`.${normalizedSite}`);
+}
+
+function isStaticRedactionToken(value) {
+  return /^\[[A-Z0-9_ -]+ REDACTED\]$/.test(String(value || '').trim());
+}
+
 // ── Selectors that identify known LLM assistant / thread areas so Veil never
 // scans or mutates provider-owned conversation history. ─────────────────────
 const ASSISTANT_RESPONSE_SELECTORS = [
@@ -166,9 +188,9 @@ class VeilContentController {
 
   detectPlatform() {
     const hostname = window.location.hostname.toLowerCase();
-    if (hostname.includes('chatgpt') || hostname.includes('openai')) return 'chatgpt';
-    if (hostname.includes('claude')) return 'claude';
-    if (hostname.includes('gemini') || hostname.includes('google')) return 'gemini';
+    if (hostMatchesSite(hostname, 'chatgpt.com') || hostMatchesSite(hostname, 'chat.openai.com')) return 'chatgpt';
+    if (hostMatchesSite(hostname, 'claude.ai')) return 'claude';
+    if (hostMatchesSite(hostname, 'gemini.google.com') || hostMatchesSite(hostname, 'bard.google.com')) return 'gemini';
     return 'generic';
   }
 
@@ -241,7 +263,7 @@ class VeilContentController {
   isSiteMonitored() {
     if (this.settings.monitorAllSites) return true;
     const host = window.location.hostname;
-    return this.settings.monitoredSites.some((site) => host.includes(site));
+    return this.settings.monitoredSites.some((site) => hostMatchesSite(host, site));
   }
 
   async initializeModel() {
@@ -318,6 +340,7 @@ class VeilContentController {
       const replacement = this.getReplacementText(item, state.mode);
       const original = String(item.text || '').trim();
       if (!replacement || !original || replacement === original) return;
+      if (isStaticRedactionToken(replacement)) return;
       this.responseRestoreLedger.set(replacement, original);
       this.buildResponseRestoreComponents(item, replacement, original).forEach(([partialReplacement, partialOriginal]) => {
         if (!partialReplacement || !partialOriginal || partialReplacement === partialOriginal) return;
@@ -647,7 +670,13 @@ class VeilContentController {
     this.pruneDisconnectedMonitoredElements();
 
     this.settings.monitoredSelectors.forEach((selector) => {
-      const elements = document.querySelectorAll(selector);
+      let elements;
+      try {
+        elements = document.querySelectorAll(selector);
+      } catch (error) {
+        console.warn('[Veil] Ignoring invalid monitored selector:', selector, error?.message || error);
+        return;
+      }
       elements.forEach((element) => {
         if (!this.isElementEligible(element)) return;
         if (!this.monitoredElements.has(element)) {
@@ -1599,7 +1628,7 @@ class VeilContentController {
    */
   detectNativeNewlineStyle(element) {
     const hostname = window.location.hostname.toLowerCase();
-    if (hostname.includes('gemini') || hostname.includes('bard.google')) return 'p';
+    if (hostMatchesSite(hostname, 'gemini.google.com') || hostMatchesSite(hostname, 'bard.google.com')) return 'p';
 
     let pCount = 0;
     for (const child of element.childNodes) {
@@ -2373,7 +2402,6 @@ class VeilContentController {
   // Popover removed — actions (redact/restore) are accessible via token tray chips and
   // the inline click handler on detection spans. showPopover is kept as a no-op so any
   // remaining call sites are safe.
-  // eslint-disable-next-line no-unused-vars
   showPopover(_anchorSpan, _element, _index, _mode, _anchorRect = null) {}
 
   hidePopover() {
@@ -3458,6 +3486,7 @@ class VeilContentController {
         const replacement = this.getReplacementText(item, state.mode);
         const original = String(item.text || '').trim();
         if (!replacement || !original || replacement === original) return;
+        if (isStaticRedactionToken(replacement)) return;
         if (!map.has(replacement)) map.set(replacement, original);
       });
     });
@@ -3473,6 +3502,7 @@ class VeilContentController {
         const replacement = this.getReplacementText(item, state.mode);
         const original = String(item.text || '').trim();
         if (!replacement || !original || replacement === original) return;
+        if (isStaticRedactionToken(replacement)) return;
         if (!map.has(replacement)) map.set(replacement, original);
       });
     });

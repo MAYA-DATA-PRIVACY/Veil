@@ -4,22 +4,16 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: Existing version tag to publish (for example, v1.2.0)
-        required: true
-        type: string
 
 permissions:
   contents: write
 
 env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
   verify-release-version:
-    name: Verify Release Version
+    name: Verify Release
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release_meta.outputs.tag_name }}
@@ -35,6 +29,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
+          cache: npm
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.10.7'
+          python-version: '3.11'
+          enable-cache: true
+          cache-python: true
 
       - name: Resolve release metadata
         id: release_meta
@@ -54,6 +57,25 @@ jobs:
 
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag is reachable from main
+        env:
+          TAG_NAME: ${{ steps.release_meta.outputs.tag_name }}
+        run: |
+          git fetch --force origin main:refs/remotes/origin/main
+          TAG_COMMIT="$(git rev-list -n 1 "$TAG_NAME")"
+
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+            echo "Tag '$TAG_NAME' points to $TAG_COMMIT, which is not reachable from origin/main." >&2
+            exit 1
+          fi
+
+      - name: Verify no conflict markers are present
+        run: |
+          if git grep -n -I -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
+            echo "Conflict markers were found in the release source." >&2
+            exit 1
+          fi
 
       - name: Verify release metadata matches repository versions
         env:
@@ -93,71 +115,36 @@ jobs:
             exit 1
           fi
 
-      - name: Summarize manual release inputs
+      - name: Install test dependencies
+        run: |
+          npm ci
+          uv sync --frozen --dev --no-install-project
+
+      - name: Run JavaScript unit tests
+        run: npm run test:unit
+
+      - name: Run Python tests
+        run: uv run --no-sync pytest tests/server/ -v
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Summarize release inputs
         run: |
           {
-            echo "## Manual Release"
+            echo "## Release"
             echo ""
             echo "- tag_name: \`${{ steps.release_meta.outputs.tag_name }}\`"
             echo "- release_version: \`${{ steps.release_meta.outputs.release_version }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  test-js:
-    name: JavaScript Tests
-    runs-on: ubuntu-latest
-    needs: verify-release-version
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.verify-release-version.outputs.tag_name }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: npm
-      - run: npm ci
-      - run: npm run test:unit
-
-  test-python:
-    name: Python Tests
-    runs-on: ubuntu-latest
-    needs: verify-release-version
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.verify-release-version.outputs.tag_name }}
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: '0.10.7'
-          python-version: '3.11'
-          enable-cache: true
-          cache-python: true
-      - run: uv sync --frozen --dev --no-install-project
-      - run: uv run --no-sync pytest tests/server/ -v
-
-  test-e2e:
-    name: End-to-End Tests
-    runs-on: ubuntu-latest
-    needs: verify-release-version
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.verify-release-version.outputs.tag_name }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: xvfb-run -a npm run test:e2e
-
   build-windows-installer:
     name: Build Windows Setup
     runs-on: windows-latest
-    needs:
-      - verify-release-version
-      - test-js
-      - test-python
-      - test-e2e
+    needs: verify-release-version
     steps:
       - uses: actions/checkout@v6
         with:
@@ -205,9 +192,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - verify-release-version
-      - test-js
-      - test-python
-      - test-e2e
       - build-windows-installer
     permissions:
       contents: write

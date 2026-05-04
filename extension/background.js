@@ -17,6 +17,7 @@ const DEFAULT_LABELS = [
   'location',
   'organization'
 ];
+const CORE_ENABLED_LABELS = new Set(DEFAULT_LABELS);
 
 // GLiNER2 accepts labels as a Dict[internal_name → natural_language_description].
 // The model uses the description for zero-shot embedding matching; it returns
@@ -707,7 +708,7 @@ class GLiNERDetector {
     const shouldRunRegexDetectors = !modelOnline || includeRegexWhenModelOnline;
     if (shouldRunRegexDetectors) {
       detections.push(...this.detectWithRegex(text, enabledTypes, threshold));
-      detections.push(...this.detectWithCustomPatterns(text, customPatterns, threshold));
+      detections.push(...this.detectWithCustomPatterns(text, customPatterns, threshold, enabledTypes));
     }
 
     return this.mergeAdjacentSameLabel(
@@ -731,7 +732,7 @@ class GLiNERDetector {
 
     const detections = [
       ...this.detectWithRegex(text, enabledTypes, threshold),
-      ...this.detectWithCustomPatterns(text, customPatterns, threshold)
+      ...this.detectWithCustomPatterns(text, customPatterns, threshold, enabledTypes)
     ];
 
     return this.mergeAdjacentSameLabel(
@@ -991,8 +992,13 @@ class GLiNERDetector {
     return detections.filter((item) => item.score >= threshold);
   }
 
-  detectWithCustomPatterns(text, patterns, threshold) {
+  detectWithCustomPatterns(text, patterns, threshold, enabledTypes = this.labels) {
     const detections = [];
+    const enabledLabelSet = new Set(
+      (Array.isArray(enabledTypes) ? enabledTypes : this.labels)
+        .map((type) => String(type || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
     patterns
       .filter((patternDef) => patternDef && typeof patternDef === 'object' && patternDef.enabled !== false)
       .forEach((patternDef) => {
@@ -1003,6 +1009,7 @@ class GLiNERDetector {
         const replacement = patternDef.replacement ? String(patternDef.replacement) : null;
 
         if (!label || !pattern) return;
+        if (CORE_ENABLED_LABELS.has(label) && !enabledLabelSet.has(label)) return;
 
         let regex;
         try {

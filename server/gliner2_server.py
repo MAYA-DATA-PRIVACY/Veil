@@ -48,6 +48,7 @@ DEFAULT_ONNX_PRECISION = "fp16"
 DEFAULT_ONNX_PROVIDERS = ["CPUExecutionProvider"]
 DEFAULT_THRESHOLD = 0.42
 DEFAULT_MAX_CHARS = 9000
+DEFAULT_MAX_BODY_BYTES = 1024 * 1024
 DEFAULT_LABELS = {
     "person":        "full name, first name, last name, or nickname of a real human individual",
     "email":         "electronic mail address containing @ and a domain like user@example.com",
@@ -68,11 +69,23 @@ DEFAULT_THRESHOLDS_BY_TYPE = {
 
 PII_STRUCTURE_SCHEMA = {
     "persons":   "names of people — first names, last names, full names",
+    "organizations": "company names, institutions, government agencies, or business entities",
     "emails":    "email addresses in format user@domain.com",
     "phones":    "phone numbers or mobile numbers",
     "ids":       "identity numbers such as SSN, passport number, national ID",
     "financial": "credit card numbers or bank account details",
     "locations": "addresses, cities, countries, states, geographic places",
+}
+LABEL_TO_STRUCTURE_KEY = {
+    "person": "persons",
+    "organization": "organizations",
+    "email": "emails",
+    "phone": "phones",
+    "ssn": "ids",
+    "credit_card": "financial",
+    "address": "locations",
+    "location": "locations",
+    "date_of_birth": "ids",
 }
 
 # Server-side chunking: GLiNER2's context window is ~512 tokens; 480 chars is a
@@ -91,6 +104,10 @@ PROCESS_SESSION_ID = uuid.uuid4().hex[:10]
 PROCESS_LOCK_HANDLE = None
 
 load_dotenv(ENV_FILE, override=False)
+
+
+class RequestBodyTooLarge(ValueError):
+    """Raised before reading request bodies that exceed the local API cap."""
 
 if os.name == "nt":
     import msvcrt
@@ -511,7 +528,7 @@ def make_chunks(text: str) -> List[Tuple[str, int]]:
         result.append((text[pos:end], pos))
         if end >= len(text):
             break
-        pos += CHUNK_SIZE - CHUNK_OVERLAP
+        pos = max(end - CHUNK_OVERLAP, pos + 1)
     return result
 
 
@@ -838,18 +855,13 @@ class GLiNERService:
         if schema is None:
             schema = PII_STRUCTURE_SCHEMA
 
-        label_to_schema_key = {
-            "person": "persons", "email": "emails", "phone": "phones",
-            "ssn": "ids", "credit_card": "financial", "address": "locations",
-            "location": "locations", "date_of_birth": "ids", "organization": "persons",
-        }
         try:
             detections = self.detect(text, DEFAULT_LABELS, 0.35)
             result: Dict[str, List[str]] = {key: [] for key in schema}
             seen: Dict[str, set] = {key: set() for key in schema}
             for det in detections:
                 lbl = str(det.get("label", "")).lower()
-                bucket = label_to_schema_key.get(lbl)
+                bucket = LABEL_TO_STRUCTURE_KEY.get(lbl)
                 if bucket and bucket in result:
                     value = str(det.get("text", "")).strip()
                     if value and value not in seen[bucket]:
@@ -862,14 +874,10 @@ class GLiNERService:
 
 def make_handler(service: GLiNERService, max_chars: int):
     class Handler(BaseHTTPRequestHandler):
-        def _allowed_origin(self) -> str:
-            """Return the request Origin if it is from a trusted local source,
-            otherwise return an empty string (request will still be served but
-            without ACAO — browsers will block the response for cross-origin JS).
-            Trusted: chrome-extension://, moz-extension://, localhost, 127.0.0.1."""
-            origin = self.headers.get("Origin", "")
-            if not origin:
-                return ""
+        def _origin_header(self) -> str:
+            return str(self.headers.get("Origin", "")).strip().replace("\r", "").replace("\n", "")
+
+        def _is_allowed_origin(self, origin: str) -> bool:
             if (
                 origin.startswith("chrome-extension://")
                 or origin.startswith("moz-extension://")
@@ -878,10 +886,24 @@ def make_handler(service: GLiNERService, max_chars: int):
                 or origin.startswith("http://localhost:")
                 or origin.startswith("http://127.0.0.1:")
             ):
-                # Strip any CR/LF characters to prevent HTTP response splitting
-                sanitized = origin.replace("\r", "").replace("\n", "")
-                return sanitized
+                return True
+            return False
+
+        def _allowed_origin(self) -> str:
+            """Return the sanitized trusted Origin for CORS response headers."""
+            origin = self._origin_header()
+            if not origin:
+                return ""
+            if self._is_allowed_origin(origin):
+                return origin
             return ""
+
+        def _reject_forbidden_origin(self) -> bool:
+            origin = self._origin_header()
+            if origin and not self._is_allowed_origin(origin):
+                self._write_json({"ok": False, "error": "Forbidden origin."}, status_code=403)
+                return True
+            return False
 
         def _write_json(self, payload: Any, status_code: int = 200) -> None:
             body = json.dumps(payload).encode("utf-8")
@@ -902,18 +924,32 @@ def make_handler(service: GLiNERService, max_chars: int):
                 pass
 
         def _read_json(self) -> Any:
-            content_length = int(self.headers.get("Content-Length", "0"))
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+            except (TypeError, ValueError):
+                raise ValueError("Invalid Content-Length header.")
             if content_length <= 0:
                 return {}
-            raw = self.rfile.read(content_length).decode("utf-8")
+            if content_length > DEFAULT_MAX_BODY_BYTES:
+                raise RequestBodyTooLarge(
+                    f"Request body exceeds {DEFAULT_MAX_BODY_BYTES} byte limit."
+                )
+            try:
+                raw = self.rfile.read(content_length).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("Invalid UTF-8 JSON body.") from exc
             if not raw:
                 return {}
             return json.loads(raw)
 
         def do_OPTIONS(self) -> None:  # noqa: N802
+            if self._reject_forbidden_origin():
+                return
             self._write_json({}, status_code=204)
 
         def do_GET(self) -> None:  # noqa: N802
+            if self._reject_forbidden_origin():
+                return
             path = urlparse(self.path).path
             if path == "/health":
                 self._write_json(
@@ -932,6 +968,8 @@ def make_handler(service: GLiNERService, max_chars: int):
             self._write_json({"ok": False, "error": "Not found"}, status_code=404)
 
         def do_POST(self) -> None:  # noqa: N802
+            if self._reject_forbidden_origin():
+                return
             path = urlparse(self.path).path
 
             try:
@@ -1022,6 +1060,8 @@ def make_handler(service: GLiNERService, max_chars: int):
                 return
             except json.JSONDecodeError:
                 self._write_json({"ok": False, "error": "Invalid JSON body."}, status_code=400)
+            except RequestBodyTooLarge as exc:
+                self._write_json({"ok": False, "error": str(exc)}, status_code=413)
             except ValueError as exc:
                 self._write_json({"ok": False, "error": str(exc)}, status_code=400)
             except RuntimeError as exc:
