@@ -255,7 +255,7 @@ jobs:
         run: mv dist/veil-extension.zip "dist/veil-extension-${{ needs.verify-release-version.outputs.release_version }}.zip"
 
       - name: Download Windows installer artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: veil-windows-setup
           path: dist
