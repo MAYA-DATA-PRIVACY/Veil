@@ -206,6 +206,61 @@ function buildResponseRestoreComponents(label, replacement, original) {
     ));
 }
 
+function normalizeSiteHost(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const withoutWildcard = raw.replace(/^\*\./, '');
+  try {
+    return new URL(withoutWildcard.includes('://') ? withoutWildcard : `https://${withoutWildcard}`).hostname.replace(/^\.+|\.+$/g, '');
+  } catch {
+    return withoutWildcard.split('/')[0].split(':')[0].replace(/^\.+|\.+$/g, '');
+  }
+}
+
+function hostMatchesSite(host, site) {
+  const normalizedHost = normalizeSiteHost(host);
+  const normalizedSite = normalizeSiteHost(site);
+  if (!normalizedHost || !normalizedSite) return false;
+  return normalizedHost === normalizedSite || normalizedHost.endsWith(`.${normalizedSite}`);
+}
+
+function collectSelectorMatches(selectors, querySelectorAll) {
+  const found = [];
+  selectors.forEach((selector) => {
+    let elements;
+    try {
+      elements = querySelectorAll(selector);
+    } catch {
+      return;
+    }
+    elements.forEach((element) => found.push(element));
+  });
+  return found;
+}
+
+const CORE_ENABLED_LABELS = new Set(['person','email','phone','address','ssn','credit_card','date_of_birth','location','organization']);
+
+function detectWithCustomPatternsForTest(text, patterns, threshold, enabledTypes) {
+  const enabledLabelSet = new Set((enabledTypes || []).map((type) => String(type || '').trim().toLowerCase()).filter(Boolean));
+  const detections = [];
+  patterns
+    .filter((patternDef) => patternDef && typeof patternDef === 'object' && patternDef.enabled !== false)
+    .forEach((patternDef) => {
+      const label = String(patternDef.label || 'custom').trim().toLowerCase();
+      if (CORE_ENABLED_LABELS.has(label) && !enabledLabelSet.has(label)) return;
+      const regex = new RegExp(patternDef.pattern, patternDef.flags || 'g');
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        detections.push({ text: match[0], label, start: match.index, end: match.index + match[0].length, score: patternDef.score || 0.96 });
+      }
+    });
+  return detections.filter((item) => item.score >= threshold);
+}
+
+function isStaticRedactionToken(value) {
+  return /^\[[A-Z0-9_ -]+ REDACTED\]$/.test(String(value || '').trim());
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 section('mergeOverlapping — no overlaps');
@@ -433,6 +488,41 @@ section('assistant response restore — non-person labels do not create sub-word
 {
   const parts = buildResponseRestoreComponents('organization', 'Maya Labs', 'Acme Systems');
   assertEqual(parts, [], 'sub-word local restore remains limited to person names');
+}
+
+section('site matching — exact or suffix-boundary only');
+{
+  assertEqual(hostMatchesSite('chatgpt.com', 'chatgpt.com'), true, 'exact monitored host matches');
+  assertEqual(hostMatchesSite('team.chatgpt.com', 'chatgpt.com'), true, 'subdomain monitored host matches');
+  assertEqual(hostMatchesSite('evilchatgpt.com', 'chatgpt.com'), false, 'substring host does not match');
+  assertEqual(hostMatchesSite('chatgpt.com.evil.example', 'chatgpt.com'), false, 'embedded monitored host does not match');
+  assertEqual(hostMatchesSite('gemini.google.com', 'https://gemini.google.com/path'), true, 'configured URL normalizes to hostname');
+}
+
+section('selector scanning — invalid selectors are isolated');
+{
+  const matches = collectSelectorMatches(['textarea', 'input[', '[role="textbox"]'], (selector) => {
+    if (selector === 'input[') throw new Error('invalid selector');
+    return [{ selector }];
+  });
+  assertEqual(matches.map((entry) => entry.selector), ['textarea', '[role="textbox"]'], 'one invalid selector does not stop later selectors');
+}
+
+section('custom patterns — core labels honor disabled enabledTypes');
+{
+  const patterns = [
+    { label: 'email', pattern: '\\btest@example\\.com\\b', flags: 'g', score: 0.99, enabled: true },
+    { label: 'api_key', pattern: '\\bsk-test-secret\\b', flags: 'g', score: 0.99, enabled: true },
+  ];
+  const detections = detectWithCustomPatternsForTest('test@example.com sk-test-secret', patterns, 0.5, ['person']);
+  assertEqual(detections.map((item) => item.label), ['api_key'], 'disabled core email pattern is skipped while non-core secret pattern remains active');
+}
+
+section('assistant response restore — static redaction tokens are not ledger keys');
+{
+  assertEqual(isStaticRedactionToken('[EMAIL REDACTED]'), true, 'plain static mask token is recognized');
+  assertEqual(isStaticRedactionToken('[NAME_1 REDACTED]'), true, 'indexed static mask token is recognized');
+  assertEqual(isStaticRedactionToken('Alexandra Aisha'), false, 'natural anonymized replacement is still eligible');
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

@@ -89,8 +89,8 @@ def test_release_workflow_builds_and_publishes_windows_setup():
     assert "runs-on: windows-latest" in workflow
     assert 'choco install innosetup --no-progress -y' in workflow
     assert 'ISCC.exe' in workflow
-    assert "actions/upload-artifact@v4" in workflow
-    assert "actions/download-artifact@v5" in workflow
+    assert "actions/upload-artifact@v7" in workflow
+    assert "actions/download-artifact@v8" in workflow
     assert "dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" in workflow
     assert "dist/VeilSetup.exe" in workflow
     assert "scripts/build_model_bundle.py" not in windows_job

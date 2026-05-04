@@ -1663,7 +1663,6 @@ class SettingsManager {
 
     // Validate the regex
     try {
-      // eslint-disable-next-line no-new
       new RegExp(regex, 'g');
     } catch {
       this.setMessage('Invalid regex pattern — check your syntax.', true);
@@ -2032,7 +2031,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const sm = new SettingsManager();
   window.__VEIL_SETTINGS_MANAGER__ = sm;
-  // eslint-disable-next-line no-new
   new OnboardingWizard(sm);
 
   // Sidebar scroll-spy for options page

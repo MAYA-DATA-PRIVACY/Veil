@@ -11,7 +11,7 @@
 <br/><br/>
 
 **Real-time PII detection and redaction for AI chat interfaces.**<br/>
-Your data never leaves your machine. Ever.
+Local detection by default, with optional Maya anonymisation when you enable it.
 
 <br/>
 
@@ -35,15 +35,15 @@ Your data never leaves your machine. Ever.
 
 ## The Problem
 
-Every time you type a name, email, phone number, or credit card into ChatGPT, Claude, Gemini, or any other AI assistant, that data leaves your browser and lands on somebody else's server. It gets logged. It might get used for training. You have no way to get it back.
+Every time you type a name, email, phone number, or credit card into ChatGPT, Claude, Gemini, or any other AI assistant, that data can leave your browser and land on somebody else's server. It may be logged. It might get used for training. You have no way to get it back.
 
 Most people don't even think about it until it's too late.
 
 ## What Veil Does
 
-Veil sits between you and the AI. It watches what you type, spots sensitive information in real time, and gives you a chance to mask it before it ever gets sent. Names become `[PERSON]`. Emails become `[EMAIL REDACTED]`. Credit card numbers never leave your keyboard.
+Veil sits between you and the AI. It watches what you type, spots sensitive information in real time, and gives you a chance to mask it before it gets sent. Names become `[PERSON]`. Emails become `[EMAIL REDACTED]`. Credit card numbers can be replaced before they leave your browser.
 
-The detection runs entirely on your own machine using a local NLP model called [GLiNER2](https://github.com/fastino-ai/GLiNER2). Nothing is uploaded to a cloud for analysis. Nothing is stored. Nothing is shared.
+Detection runs on your own machine by default using a local NLP model called [GLiNER2](https://github.com/fastino-ai/GLiNER2), plus local regex rules. Veil also has an optional Maya anonymisation mode for realistic replacements; when enabled, selected anonymisation payloads are sent to Maya through Veil's local proxy.
 
 <br/>
 
@@ -63,7 +63,7 @@ AI receives: "Hey, my name is [PERSON] and my SSN is [SSN REDACTED]"
 
 ## Key Features
 
-- **Fully local detection** - GLiNER2 ONNX model runs on localhost. Zero cloud calls, zero data egress, works offline after initial setup.
+- **Local detection by default** - GLiNER2 ONNX model runs on localhost. Detection does not require cloud calls and works offline after initial setup.
 - **Inline highlights** - Grammarly-style underlining shows exactly what Veil found. One click to redact, one click to dismiss.
 - **Works everywhere** - ChatGPT, Claude, Gemini, Perplexity, Notion, and any other site with text inputs or contentEditable fields.
 - **Regex fallback** - Built-in patterns catch API keys, JWTs, AWS credentials, SSNs, and more. Works instantly even without the local model.
@@ -139,7 +139,22 @@ User sees inline highlights. One-click redaction replaces PII before submission.
 3. The **GLiNER2 server** runs the ONNX model, finds entities, and returns detection results with positions and confidence scores.
 4. **content.js** renders inline highlights over the detected spans. You can dismiss false positives or accept redactions with a single click.
 
-All of this happens locally. The extension's manifest includes a strict Content Security Policy (`script-src 'self'; object-src 'none'`) and no remote code is ever loaded or executed.
+Local detection happens on your machine. The extension's manifest includes a strict Content Security Policy (`script-src 'self'; object-src 'none'`) and no remote code is ever loaded or executed.
+
+### Data Flow and Retention
+
+- **Detection text**: sent from the active tab to the extension background worker, then to the local Veil server on `127.0.0.1:8765` for GLiNER2 inference. This detection path is local by default.
+- **Optional anonymisation**: when Anonymize mode is enabled and a Maya API key is configured, selected detected values are sent to Maya through the local `/anonymize` proxy so Maya can return realistic replacements. Maya company policy says Maya does not store PII that runs through its anonymisation engine.
+- **Browser-local storage**: settings, custom regex patterns, Maya API key, local server URL override, onboarding/preferences, site redaction counters, and cached redaction state are stored in `chrome.storage.local`, not Chrome sync.
+- **Cached redaction state**: Veil stores recent redaction state locally so page interactions can remain consistent. The cache includes the source text and detected items, and entries older than 24 hours are removed by the extension cache cleanup logic.
+- **Uninstall**: removing the extension clears extension-owned browser storage according to browser behavior. The server uninstall scripts remove the local server runtime, model files, autostart entries, and native messaging host config.
+
+### Security Boundaries
+
+- Veil protects text before submission; it does not control how ChatGPT, Claude, Gemini, or any destination service handles text after you send it.
+- Veil does not inspect provider-owned server logs, conversation databases, or model-training pipelines.
+- The local server binds to `127.0.0.1` by default. Treat other local processes and browser extensions on the same machine as part of your local trust boundary.
+- Custom regex patterns run locally but can still create performance problems if a pattern is pathological. Add only patterns you trust.
 
 ---
 
@@ -171,7 +186,9 @@ Head to the extension's Settings page, scroll to **Advanced**, and add patterns 
 
 ### Anonymisation Service (Optional)
 
-Veil can optionally connect to the [Maya Data Privacy](https://mayadataprivacy.in) anonymisation API for smarter replacements - turning `John Smith` into a consistent synthetic alias like `Alex Johnson` instead of a generic `[PERSON]` tag. This is entirely opt-in and requires your own API key. Disabled by default.
+Veil can optionally connect to the [Maya Data Privacy](https://mayadataprivacy.in) anonymisation API for smarter replacements - turning `John Smith` into a consistent synthetic alias like `Alex Johnson` instead of a generic `[PERSON]` tag.
+
+This is disabled by default and requires your own Maya API key. When Anonymize mode is enabled, Veil sends the selected detected values and metadata needed for anonymisation to Maya through the local server's `/anonymize` proxy. Maya company policy says Maya does not store PII that runs through its anonymisation engine. Unsupported detections remain local and are masked with local redaction tags.
 
 ---
 
@@ -210,6 +227,8 @@ npm run run-gliner2              # starts the local server on port 8765
 ```
 
 Load `extension/` as an unpacked extension in Chrome, and you're developing.
+
+For optional Maya anonymisation endpoint overrides, create a local `.env` from the environment variable sample in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Do not commit `.env`.
 
 ### Running Tests
 

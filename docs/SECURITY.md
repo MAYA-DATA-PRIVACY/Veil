@@ -25,21 +25,44 @@ If a fix is warranted, we will coordinate a disclosure timeline with you (typica
 
 ## Threat Model
 
-Veil operates entirely client-side. The surfaces most relevant to security researchers are:
+Veil performs PII detection locally by default. The browser extension sends text to the local Veil server on `127.0.0.1:8765` for GLiNER2 inference and local regex handling. Optional Maya anonymisation is disabled by default; when enabled, selected anonymisation payloads are proxied from the local server to Maya.
+
+The surfaces most relevant to security researchers are:
 
 | Surface | Notes |
 |---------|-------|
 | Content script ↔ page DOM | `innerHTML` injection paths — all user-controlled strings must be `escapeHtml()`-escaped |
 | Content script ↔ background message | Structured-clone boundary; validate all message shapes |
-| Background ↔ local Python server | HTTP on `127.0.0.1:8765` — no CSRF/Origin check yet (known, tracked) |
-| `chrome.storage.local` | API key stored; no sync, no cloud exposure |
+| Background ↔ local Python server | HTTP on `127.0.0.1:8765`; CORS responses are limited to trusted extension and localhost origins |
+| Local server ↔ Maya anonymisation API | Optional external call for selected anonymisation payloads only when Anonymize mode and a Maya API key are configured |
+| `chrome.storage.local` | Settings, custom patterns, API key, counters, and cached redaction state are stored locally; no Chrome sync storage is used |
 | Custom regex patterns | Executed client-side; regex DoS (ReDoS) possible with malicious patterns |
+
+---
+
+## Data Flow and Retention
+
+- **Local detection**: text being edited is sent from the active tab to the extension background worker and then to the local server. This path stays on the user's machine.
+- **Optional Maya anonymisation**: Anonymize mode sends selected detected values and metadata needed for anonymisation to Maya through the local `/anonymize` proxy. Maya company policy says Maya does not store PII that runs through its anonymisation engine.
+- **Browser-local storage**: Veil stores configuration, custom patterns, the Maya API key if provided, onboarding/preferences, site redaction counters, and cached redaction state in `chrome.storage.local`.
+- **Cached redaction state**: local cache entries may include source text and detected items so the UI can keep redaction state consistent. Entries older than 24 hours are removed by extension cache cleanup.
+- **Local server logs**: the local server should not log raw anonymisation values; anonymisation logging should remain metadata-oriented.
+
+---
+
+## Security Boundaries
+
+- Veil protects text before submission. It does not control how destination sites or LLM providers store, log, train on, or process text after the user sends it.
+- Veil's local trust boundary includes the user's browser profile, installed extensions, local processes, and anything with access to `chrome.storage.local` or localhost traffic on the machine.
+- The local server is intended to bind to `127.0.0.1`. Do not expose it on a network interface unless you also add appropriate authentication and network controls.
+- Custom regex rules are user-provided code-like configuration. Treat shared pattern sets as untrusted until reviewed.
 
 ---
 
 ## Known Accepted Risks
 
-- **Local server Origin validation**: The GLiNER2 server at `127.0.0.1:8765` does not currently validate the `Origin` header. This is acceptable because the server is only accessible from localhost and does not mutate persistent state. Tracking issue: #TBD.
+- **Local browser storage**: Maya API keys and cached redaction state are stored in `chrome.storage.local`. This keeps data off Chrome sync, but it is still accessible to the local browser profile and should be treated as sensitive local data.
+- **Localhost exposure**: The local server trusts the user's machine boundary. CORS headers are restricted to trusted extension and localhost origins, but other local software can still interact with localhost services if it has sufficient local access.
 
 ---
 

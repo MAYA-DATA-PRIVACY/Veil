@@ -101,6 +101,26 @@ def test_start_server_reports_port_conflict_for_non_veil_process(monkeypatch, ru
     assert "already in use by another local process" in result["message"]
 
 
+def test_server_status_treats_loading_tracked_process_as_owned(monkeypatch, runtime_paths):
+    monkeypatch.setattr(native_host, "read_process_state", lambda: {"pid": "4242", "phase": "loading_model"})
+    monkeypatch.setattr(native_host, "load_state", lambda: {})
+    monkeypatch.setattr(native_host, "is_pid_running", lambda pid: pid is not None and int(pid) == 4242)
+    monkeypatch.setattr(native_host, "discover_owned_server_pids", lambda: [])
+    monkeypatch.setattr(native_host, "is_server_healthy", lambda: False)
+    monkeypatch.setattr(native_host, "is_port_open", lambda host="127.0.0.1", port=8765: True)
+    monkeypatch.setattr(native_host, "read_runtime_python_version", lambda: None)
+    monkeypatch.setattr(native_host, "resolve_uv_binary", lambda: None)
+    monkeypatch.setattr(native_host, "read_uv_version", lambda: None)
+
+    result = native_host.server_status()
+
+    assert result["running"] is True
+    assert result["healthy"] is False
+    assert result["pid"] == 4242
+    assert result["portConflict"] is False
+    assert result["processPhase"] == "loading_model"
+
+
 def test_stop_server_only_targets_tracked_veil_processes(monkeypatch, runtime_paths):
     stopped = []
     monkeypatch.setattr(native_host, "tracked_server_pids", lambda: [4242])
@@ -146,6 +166,24 @@ def test_is_pid_running_uses_windows_process_query(monkeypatch):
 
     assert native_host.is_pid_running(4242) is True
     assert native_host.is_pid_running(7) is False
+
+
+def test_owned_server_command_matches_windows_autostart_wrapper(monkeypatch):
+    repo_dir = Path("C:/Users/example/AppData/Local/Veil")
+    monkeypatch.setattr(native_host, "is_windows_platform", lambda: True)
+    monkeypatch.setattr(native_host, "REPO_DIR", repo_dir)
+    monkeypatch.setattr(native_host, "SCRIPT_PATH", repo_dir / "server" / "gliner2_server.py")
+    monkeypatch.setattr(native_host, "AUTOSTART_WRAPPER_PATH", repo_dir / "server" / "autostart" / "start_server.cmd")
+
+    assert native_host.is_owned_server_command(
+        r'cmd.exe /d /c "C:\Users\example\AppData\Local\Veil\server\autostart\start_server.cmd"'
+    )
+    assert native_host.is_owned_server_command(
+        r'"C:\Users\example\AppData\Local\Veil\.venv\Scripts\python.exe" "C:\Users\example\AppData\Local\Veil\server\gliner2_server.py" --host 127.0.0.1 --port 8765'
+    )
+    assert not native_host.is_owned_server_command(
+        r'"C:\other\Veil\.venv\Scripts\python.exe" "C:\other\Veil\server\gliner2_server.py"'
+    )
 
 
 def test_kill_pid_windows_uses_taskkill(monkeypatch):
